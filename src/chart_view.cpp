@@ -511,7 +511,7 @@ public:
       builder.AddChild(id, bounds.Intersection(geometry_.plot),
                        Semantics{.role = SemanticRole::Generic, .label = context.series_label + ", " + context.position_text,
                                  .value = context.value_text, .selected = C().selection == info.identity,
-                                 .collection_item = SemanticCollectionItem{.index = info.datum_index, .row_index = info.series_index}});
+                                 .collection_item = SemanticCollectionItem{.index = info.datum_index, .row_index = info.series_index}}, enabled_);
       if (enabled_) {
         builder.AddAction(id, SemanticActionKind::Activate);
         builder.AddAction(id, SemanticActionKind::Focus);
