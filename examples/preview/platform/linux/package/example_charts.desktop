@@ -1,0 +1,7 @@
+[Desktop Entry]
+Type=Application
+Name=Charts Preview
+Exec=example_charts
+Icon=example_charts
+Categories=Utility;
+Terminal=false
