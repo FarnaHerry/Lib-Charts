@@ -354,9 +354,11 @@ public:
     return {.advance = static_cast<float>(text.size()) * 7, .visual_bounds = {0, -10, static_cast<float>(text.size()) * 7, 14},
             .font_metrics = {.ascent = 10, .descent = 3, .leading = 1}};
   }
-  TextLayoutMetrics MeasureText(std::string_view text, const TextStyle&, float width, const TextLayoutOptions&) override {
+  TextLayoutMetrics MeasureText(const AttributedText& text, const TextStyle&, float width,
+                                const TextLayoutOptions&) override {
     ++measurements;
-    return {.size = {std::min(width, static_cast<float>(text.size()) * 7), 14}, .first_baseline = 10, .last_baseline = 10, .line_count = 1};
+    return {.size = {std::min(width, static_cast<float>(text.PlainText().size()) * 7), 14},
+            .first_baseline = 10, .last_baseline = 10, .line_count = 1};
   }
 };
 

@@ -265,10 +265,10 @@ void PaintLegend(PaintContext& paint, Size size, Kind kind, const MarkStyle& sty
 
 class ChartSurface::Extension final : public NodeExtension {
 public:
-  Extension(MountedNode&, const ChartSurface& spec) : spec_(spec), model_(BuildModel(*spec.presentation->config)) {}
+  Extension(ViewNode&, const ChartSurface& spec) : spec_(spec), model_(BuildModel(*spec.presentation->config)) {}
   ~Extension() override { DismissTooltip(); }
 
-  void Update(MountedNode&, const ChartSurface& spec) {
+  void Update(ViewNode&, const ChartSurface& spec) {
     const auto& previous = *spec_.presentation->config;
     const auto& next = *spec.presentation->config;
     const bool changed_model = !SameModel(previous, next);
@@ -296,7 +296,7 @@ public:
     InvalidateSemantics();
   }
 
-  PaintInvalidation PrepareGeometry(MountedNode& node, TextMeasurer& measurer) override {
+  PaintInvalidation PrepareGeometry(ViewNode& node, TextMeasurer& measurer) override {
     // Use final node-local content bounds for painting, hit testing and popup anchors. The supplied measurer
     // is borrowed only for this pass; cached tick metrics let unchanged frames avoid measuring again.
     enabled_ = node.IsEnabled();
@@ -379,7 +379,7 @@ public:
     return PaintInvalidation::Both;
   }
 
-  FrameResult OnFrame(MountedNode& node, const FrameInfo& frame) override {
+  FrameResult OnFrame(ViewNode& node, const FrameInfo& frame) override {
     enabled_ = node.IsEnabled();
     if (!enabled_) { hover_.reset(); cursor_.reset(); keyboard_cursor_ = false; pressed_.reset(); DismissTooltip(); }
     // Geometry preparation only records invalidated hover state; notify the application from the frame callback.
@@ -396,10 +396,10 @@ public:
     return {.needs_frame = advance.needs_frame || dirty_layout_ || tooltip_dirty_, .wake_after = advance.wake_after};
   }
 
-  bool HitTest(MountedNode&, Point point) const override { return geometry_.plot.Contains(point); }
-  bool HoverHitTest(MountedNode&, Point point) const override { return geometry_.plot.Contains(point); }
+  bool HitTest(ViewNode&, Point point) const override { return geometry_.plot.Contains(point); }
+  bool HoverHitTest(ViewNode&, Point point) const override { return geometry_.plot.Contains(point); }
 
-  void OnHover(MountedNode&, const HoverEvent& event) override {
+  void OnHover(ViewNode&, const HoverEvent& event) override {
     const auto hit = event.type == HoverEventType::Leave ? std::nullopt : Hit(geometry_, event.position, Slop());
     std::optional<ChartDatumIdentity> next;
     if (hit) next = Info(*hit).identity;
@@ -412,7 +412,7 @@ public:
     InvalidatePaint();
   }
 
-  PointerResult OnPointer(MountedNode& node, const PointerEvent& event) override {
+  PointerResult OnPointer(ViewNode& node, const PointerEvent& event) override {
     if (!node.IsEnabled()) { pressed_.reset(); return PointerResult::Ignored; }
     if (event.type == PointerEventType::Cancel) {
       pressed_.reset();
@@ -456,14 +456,14 @@ public:
     return PointerResult::Ignored;
   }
 
-  void OnFocusChanged(MountedNode&, bool focused) override {
+  void OnFocusChanged(ViewNode&, bool focused, bool) override {
     focused_ = focused;
     if (!focused) { cursor_.reset(); keyboard_cursor_ = false; UpdateTooltip(); }
     RebuildSemantics();
     InvalidatePaint();
   }
 
-  bool OnKey(MountedNode& node, const KeyEvent& event) override {
+  bool OnKey(ViewNode& node, const KeyEvent& event) override {
     if (!node.IsEnabled() || event.type != KeyEventType::Down || event.modifiers.control || event.modifiers.alt || event.modifiers.meta) return false;
     if (event.key == Key::Escape) {
       const bool active = cursor_.has_value() || tooltip_id_.has_value();
@@ -538,7 +538,7 @@ public:
     return false;
   }
 
-  void PaintBehindContent(const MountedNode&, PaintContext& paint) const override {
+  void PaintBehindContent(const ViewNode&, PaintContext& paint) const override {
     const auto& p = P();
     const auto& c = C();
     const auto plot = geometry_.plot;
@@ -574,7 +574,7 @@ public:
     paint.PopClip();
   }
 
-  void PaintAboveContent(const MountedNode&, PaintContext& paint) const override {
+  void PaintAboveContent(const ViewNode&, PaintContext& paint) const override {
     // Transient highlights live in the foreground so hover can repaint without rerecording axes and data marks.
     paint.PushClip(geometry_.plot);
     const auto keyboard = focused_ && keyboard_cursor_ ? cursor_ : std::nullopt;
