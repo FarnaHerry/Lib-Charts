@@ -1,12 +1,11 @@
 #include "chart_internal.h"
 
 #include <huxerui/app.h>
+#include <huxerui/file.h>
 #include <huxerui/platform_adapter.h>
 #include <huxerui/render_scene.h>
 
 #include <cmath>
-#include <filesystem>
-#include <fstream>
 #include <iostream>
 #include <stdexcept>
 
@@ -332,11 +331,11 @@ class TestResources final : public PlatformResources {
 public:
   ResourceConfiguration configuration;
   ResourceConfiguration Configuration() const override { return configuration; }
-  RawAsset Read(std::string_view relative_path) override {
-    std::ifstream input(std::filesystem::path(CHARTS_TEST_PACKAGE_ROOT) / relative_path, std::ios::binary);
-    if (!input) return {};
-    const std::vector<char> bytes{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
-    return RawAsset::CopyBytes(std::as_bytes(std::span(bytes)));
+  std::optional<InputStream> OpenRead(std::string_view relative_path) override {
+    auto input = File(CHARTS_TEST_PACKAGE_ROOT).Resolve(relative_path).OpenRead();
+    if (input.Succeeded()) return std::move(input).Value();
+    if (input.Error().code == IoErrorCode::NotFound) return std::nullopt;
+    throw std::runtime_error(input.Error().message);
   }
 };
 

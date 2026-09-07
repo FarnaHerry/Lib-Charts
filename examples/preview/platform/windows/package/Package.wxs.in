@@ -3,6 +3,8 @@
            UpgradeCode="@HUXERUI_WINDOWS_MSI_UPGRADE_CODE@" Scope="perMachine">
     <MajorUpgrade DowngradeErrorMessage="A newer version of Charts Preview is already installed." />
     <MediaTemplate EmbedCab="yes" />
+    <Icon Id="ApplicationIcon" SourceFile="!(bindpath.Project)\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="ApplicationIcon" />
 
     <StandardDirectory Id="ProgramFiles64Folder">
       <Directory Id="INSTALLFOLDER" Name="Charts Preview" />
@@ -17,14 +19,16 @@
     </ComponentGroup>
     <Component Id="ApplicationShortcut" Directory="APPLICATIONPROGRAMMENU">
       <Shortcut Id="ApplicationStartMenuShortcut" Name="Charts Preview"
-                Target="[INSTALLFOLDER]example_charts.exe" WorkingDirectory="INSTALLFOLDER" />
+                Target="[INSTALLFOLDER]example_charts.exe" WorkingDirectory="INSTALLFOLDER"
+                Icon="ApplicationIcon" />
       <RemoveFolder Id="RemoveApplicationProgramMenu" On="uninstall" />
       <RegistryValue Root="HKLM" Key="Software\org.huxerui.lib.charts.preview\Charts Preview" Name="installed"
                      Type="integer" Value="1" KeyPath="yes" />
     </Component>
     <Component Id="ApplicationDesktopShortcut" Directory="DesktopFolder">
       <Shortcut Id="ApplicationDesktopShortcutLink" Name="Charts Preview"
-                Target="[INSTALLFOLDER]example_charts.exe" WorkingDirectory="INSTALLFOLDER" />
+                Target="[INSTALLFOLDER]example_charts.exe" WorkingDirectory="INSTALLFOLDER"
+                Icon="ApplicationIcon" />
       <RegistryValue Root="HKLM" Key="Software\org.huxerui.lib.charts.preview\Charts Preview" Name="desktopShortcut"
                      Type="integer" Value="1" KeyPath="yes" />
     </Component>

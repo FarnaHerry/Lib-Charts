@@ -836,7 +836,7 @@ private:
       if (custom) return custom(context);
       return Text(context.series_label + "\n" + context.position_text + ": " + context.value_text)
           .Style(style.text_style)
-          .With(Padding(style.padding), Background(style.background), CornerRadius(style.corner_radius),
+          .With(Padding(style.padding), Background(style.background), CornerRadius(style.corner_radii),
                 style.shadow, Frame{.max_width = style.maximum_width, .min_height = style.minimum_height});
     };
     const auto anchor = geometry_.marks[*mark].bounds;

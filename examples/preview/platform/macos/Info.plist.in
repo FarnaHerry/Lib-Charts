@@ -6,6 +6,8 @@
   <string>Charts Preview</string>
   <key>CFBundleIdentifier</key>
   <string>org.huxerui.lib.charts.preview</string>
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
   <key>CFBundleName</key>
   <string>Charts Preview</string>
   <key>CFBundlePackageType</key>
