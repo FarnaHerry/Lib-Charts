@@ -63,12 +63,16 @@ huxerui_add_library(huxerui_charts
             charts
 )
 
+add_library(HuxerUI::Charts ALIAS huxerui_charts)
+
+if (HUXERUI_LIBRARY_GRAPH_ONLY)
+    return()
+endif ()
+
 target_include_directories(huxerui_charts PUBLIC
         "$<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>"
         "$<INSTALL_INTERFACE:include>"
 )
-
-add_library(HuxerUI::Charts ALIAS huxerui_charts)
 
 target_compile_features(huxerui_charts PUBLIC cxx_std_20)
 
