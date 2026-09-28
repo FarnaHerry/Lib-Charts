@@ -154,6 +154,19 @@ ScatterChartData ScatterChartData::WithSeriesVisible(std::string_view key, bool 
   return result;
 }
 
+PieChartData::PieChartData(std::vector<PieDatum> data) {
+  std::unordered_set<std::string> keys;
+  for (const auto& datum : data) {
+    charts_detail::Require(!datum.key.empty() && keys.insert(datum.key).second,
+                           "Pie datum keys must be nonempty and unique");
+    charts_detail::Require(std::isfinite(datum.value) && datum.value >= 0.0,
+                           "Pie datum values must be finite and nonnegative");
+  }
+  data_ = std::make_shared<const std::vector<PieDatum>>(std::move(data));
+}
+
+std::span<const PieDatum> PieChartData::Data() const noexcept { return *data_; }
+
 ChartAxis ChartAxis::Linear() { return {}; }
 ChartAxis ChartAxis::Category() { ChartAxis axis; axis.category_ = true; return axis; }
 ChartAxis ChartAxis::Domain(ChartNumericDomain value) && {
