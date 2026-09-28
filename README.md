@@ -10,6 +10,7 @@ Charts for HuxerUI applications, with tooltips, interactive legends, selection, 
 | `AreaChart` | Filled areas, stacked areas and percentage stacks |
 | `BarChart` | Vertical or horizontal bars, grouped or stacked |
 | `ScatterChart` | Scatter plots and bubble charts |
+| `PieChart` | Proportional slices for part-to-whole comparisons |
 
 ## Installation
 
@@ -53,13 +54,26 @@ View SalesChart() {
       .Legend({.visible = false})
       .With(Frame{.height = 280.0F});
 }
+
+View TrafficMix() {
+  static const PieChartData data({
+    {"upload", "Upload", 72.0},
+    {"download", "Download", 28.0},
+  });
+
+  return PieChart(data)
+      .Title("Traffic mix")
+      .SliceStyle("upload", {.fill = Brush(Color::Rgb(230, 184, 102))})
+      .SliceStyle("download", {.fill = Brush(Color::Rgb(72, 118, 232))})
+      .With(Frame{.width = 96.0F, .height = 96.0F});
+}
 ```
 
-Call `SalesChart()` from your app's UI inside a Flat or Material theme. Set the height with `Frame` and let the parent layout provide the width.
+Call these composables from your app's UI inside a Flat or Material theme. Set the chart dimensions with `Frame`.
 
 ## Examples and documentation
 
-- [Example gallery](examples/preview/src/app.cpp): all four chart types, stacking, selection, interactive legends and animations.
+- [Example gallery](examples/preview/src/app.cpp): Cartesian and pie charts, stacking, selection, interactive legends and animations.
 - [API reference](include/huxerui/charts.h): detailed usage, data requirements, configuration options and examples.
 
 ## License

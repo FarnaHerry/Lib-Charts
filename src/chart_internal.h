@@ -56,6 +56,15 @@ struct Access {
   }
 };
 
+struct PieConfig {
+  PieChartData data;
+  StringVariant title;
+  ChartStyle appearance;
+  ChartAccessibilityOptions accessibility;
+  PieChartStyle style;
+  std::unordered_map<std::string, PieChartStyle> slice_styles;
+};
+
 using SeriesStyle = std::variant<LineChartStyle, AreaChartStyle, BarChartStyle, ScatterChartStyle>;
 struct Config {
   Kind kind = Kind::Line;
@@ -162,5 +171,6 @@ ChartNumericDomain AutoDomain(double min, double max, bool zero);
 double Fraction(double value, ChartNumericDomain domain);
 std::uint64_t StableHash(std::string_view value);
 View BuildChart(std::shared_ptr<const Config> config);
+[[huxerui::composable]] View BuildPieChart(std::shared_ptr<const PieConfig> config);
 
 } // namespace huxerui::charts_detail

@@ -36,6 +36,13 @@ ScatterChartData ScatterData() {
   return ScatterChartData({ScatterSeries("observations", "Observations", std::move(samples))});
 }
 
+PieChartData TrafficMixData() {
+  return PieChartData({
+      {"upload", "Upload", 72.0},
+      {"download", "Download", 28.0},
+  });
+}
+
 ThemeSpec GalleryTheme() {
   auto theme = MaterialLightThemeSpec();
   theme.colors.primary = Color::Rgb(55, 103, 218);
@@ -140,6 +147,7 @@ View SelectionNote(const std::optional<ChartDatumInfo>& selection) {
   static const auto initial_trend = TrendData();
   static const auto initial_sales = SalesData();
   static const auto initial_scatter = ScatterData();
+  static const auto initial_traffic_mix = TrafficMixData();
   const auto trend = UseState(initial_trend);
   const auto sales = UseState(initial_sales);
   const auto scatter = UseState(initial_scatter);
@@ -265,6 +273,19 @@ View SelectionNote(const std::optional<ChartDatumInfo>& selection) {
     SelectionNote(scatter_selection.Get()),
     Caption("Translucent fills reveal overlapping observations."),
   });
+  View pie = ChartCard(Column {
+    CardHeading("PIE / PART TO WHOLE", "Traffic mix", "A compact view of the relative transfer totals."),
+    Row {
+      PieChart(initial_traffic_mix)
+          .SliceStyle("upload", {.fill = Brush(Color::Rgb(214, 146, 55))})
+          .SliceStyle("download", {.fill = Brush(Color::Rgb(55, 103, 218))})
+          .With(Frame{.width = 160.0F, .height = 160.0F}),
+      Column {
+        Text("Upload · 72%").Style({Font::System(14.0F), Color::Rgb(214, 146, 55)}),
+        Text("Download · 28%").Style({Font::System(14.0F), Color::Rgb(55, 103, 218)}),
+      }.With(Grow(), Spacing(12.0F), MainAlign(MainAxisAlignment::Center)),
+    }.With(Spacing(20.0F), CrossAlign(CrossAxisAlignment::Center)),
+  });
   return ScrollView(Column {
     Column {
       Text("HuxerUI Charts", TextRole::Title)
@@ -276,6 +297,7 @@ View SelectionNote(const std::optional<ChartDatumInfo>& selection) {
     line,
     CardPair(expanded, area, bars),
     CardPair(expanded, categories, bubbles),
+    pie,
     Caption("Built with HuxerUI Charts · sample data for demonstration"),
   }.With(Padding(expanded ? 32.0F : 20.0F), Spacing(24.0F), CrossAlign(CrossAxisAlignment::Stretch)))
       .With(Background(theme.colors.background), ScrollBar());

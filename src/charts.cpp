@@ -102,4 +102,41 @@ ScatterChart ScatterChart::SeriesStyle(std::string key, ScatterChartStyle value)
   return Change([&](Config& c) { c.series_styles[std::move(key)] = std::move(value); });
 }
 
+PieChart::PieChart(PieChartData data) {
+  auto config = std::make_shared<charts_detail::PieConfig>();
+  config->data = std::move(data);
+  config_ = std::move(config);
+  View::operator=(charts_detail::BuildPieChart(config_));
+}
+
+PieChart PieChart::Change(std::function<void(charts_detail::PieConfig&)>&& update) {
+  auto config = std::make_shared<charts_detail::PieConfig>(*config_);
+  update(*config);
+  config_ = config;
+  View::operator=(charts_detail::BuildPieChart(config));
+  return std::move(*this);
+}
+
+PieChart PieChart::Title(StringVariant value) && {
+  return Change([&](charts_detail::PieConfig& config) { config.title = std::move(value); });
+}
+
+PieChart PieChart::Appearance(ChartStyle value) && {
+  return Change([&](charts_detail::PieConfig& config) { config.appearance = std::move(value); });
+}
+
+PieChart PieChart::Accessibility(ChartAccessibilityOptions value) && {
+  return Change([&](charts_detail::PieConfig& config) { config.accessibility = std::move(value); });
+}
+
+PieChart PieChart::Style(PieChartStyle value) && {
+  return Change([&](charts_detail::PieConfig& config) { config.style = std::move(value); });
+}
+
+PieChart PieChart::SliceStyle(std::string key, PieChartStyle value) && {
+  return Change([&](charts_detail::PieConfig& config) {
+    config.slice_styles[std::move(key)] = std::move(value);
+  });
+}
+
 } // namespace huxerui
