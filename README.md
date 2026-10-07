@@ -1,5 +1,7 @@
 # HuxerUI Charts
 
+This downstream fork maintains application fixes on `farna/main`, including pie charts and plot spacing for compact layouts. The official baseline is tracked through `upstream/main` from `HuxerUI/Lib-Charts`. Consumers should pin a validated commit.
+
 Charts for HuxerUI applications, with tooltips, interactive legends, selection, keyboard navigation and accessibility support. Customize axes, colors and styles to match your app, with support for localized labels and animated data updates.
 
 ## Supported charts
