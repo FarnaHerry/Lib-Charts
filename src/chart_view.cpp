@@ -945,7 +945,7 @@ private:
   // so each chart's externally attached handlers receive only that chart's events.
   View surface = Canvas([](PaintContext&, Size) {})
       .With(ChartSurface{presentation, popup}, popup.Anchor(), Focusable(), Grow(),
-            Frame{.min_width = 240.0F, .min_height = 180.0F})
+            Frame{.min_width = 240.0F, .min_height = 96.0F})
       .On<ChartEvents::SelectionRequested>([events](const ChartDatumInfo& info) { events.Emit<ChartEvents::SelectionRequested>(info); })
       .On<ChartEvents::HoverChanged>([events](const std::optional<ChartDatumInfo>& info) { events.Emit<ChartEvents::HoverChanged>(info); });
   Views legend_items;
