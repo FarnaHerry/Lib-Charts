@@ -13,12 +13,16 @@ struct ResolvedSliceStyle {
   Brush fill;
   Brush stroke;
   StrokeStyle stroke_style{.width = 1.0F, .join = StrokeJoin::Round};
+  std::optional<float> inner_radius;
 };
 
 void Merge(ResolvedSliceStyle& target, const PieChartStyle& source) {
   if (source.fill) target.fill = *source.fill;
   if (source.stroke) target.stroke = *source.stroke;
   if (source.stroke_style) target.stroke_style = *source.stroke_style;
+  if (source.inner_radius && std::isfinite(*source.inner_radius)) {
+    target.inner_radius = *source.inner_radius;
+  }
 }
 
 void Merge(ChartStyle& target, const ChartStyle& source) {
@@ -67,26 +71,59 @@ std::string Summary(std::span<const PieDatum> data, std::span<const std::string>
   return summary;
 }
 
-Path SectorPath(Point center, float radius, double start, double sweep, bool whole_circle) {
+Path SectorPath(Point center, float radius, float inner_radius, double start,
+                double sweep, bool whole_circle) {
   const auto steps = std::clamp(
       static_cast<int>(std::ceil(sweep * static_cast<double>(radius) / 3.0)), 2, 512);
+  const auto point = [&](float r, double angle) {
+    return Point{center.x + r * static_cast<float>(std::cos(angle)),
+                 center.y + r * static_cast<float>(std::sin(angle))};
+  };
   Path path;
+  // inner_radius > 0 时渲染为环形段：外弧正向 + 内弧反向，NonZero 填充出孔。
+  const bool donut = inner_radius > 0.0F && inner_radius < radius;
   if (whole_circle) {
-    const double angle = start;
-    path.MoveTo({center.x + radius * static_cast<float>(std::cos(angle)),
-                 center.y + radius * static_cast<float>(std::sin(angle))});
-    for (int step = 1; step < steps; ++step) {
-      const double current = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
-      path.LineTo({center.x + radius * static_cast<float>(std::cos(current)),
-                   center.y + radius * static_cast<float>(std::sin(current))});
+    if (!donut) {
+      path.MoveTo(point(radius, start));
+      for (int step = 1; step < steps; ++step) {
+        const double current = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
+        path.LineTo(point(radius, current));
+      }
+      path.Close();
+      return path;
     }
-  } else {
+    path.MoveTo(point(radius, start));
+    for (int step = 1; step <= steps; ++step) {
+      const double current = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
+      path.LineTo(point(radius, current));
+    }
+    path.Close();
+    path.MoveTo(point(inner_radius, start + sweep));
+    for (int step = 1; step <= steps; ++step) {
+      const double current = start + sweep - sweep * static_cast<double>(step) / static_cast<double>(steps);
+      path.LineTo(point(inner_radius, current));
+    }
+    path.Close();
+    return path;
+  }
+  if (!donut) {
     path.MoveTo(center);
     for (int step = 0; step <= steps; ++step) {
       const double current = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
-      path.LineTo({center.x + radius * static_cast<float>(std::cos(current)),
-                   center.y + radius * static_cast<float>(std::sin(current))});
+      path.LineTo(point(radius, current));
     }
+    path.Close();
+    return path;
+  }
+  path.MoveTo(point(radius, start));
+  for (int step = 1; step <= steps; ++step) {
+    const double current = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
+    path.LineTo(point(radius, current));
+  }
+  path.LineTo(point(inner_radius, start + sweep));
+  for (int step = 1; step <= steps; ++step) {
+    const double current = start + sweep - sweep * static_cast<double>(step) / static_cast<double>(steps);
+    path.LineTo(point(inner_radius, current));
   }
   path.Close();
   return path;
@@ -98,10 +135,25 @@ void PaintPie(PaintContext& context, Size size, std::span<const double> shares,
   if (radius <= 0.0F) return;
 
   const Point center{size.width * 0.5F, size.height * 0.5F};
+  // 圆环内径取各切片解析值里的最大者（chart-wide Style 会合并进每个切片），
+  // 限幅到外径的 90%，避免内径逼近外径后段路径退化。
+  float inner_ratio = 0.0F;
+  for (const auto& style : styles) {
+    if (!style.inner_radius) continue;
+    inner_ratio = std::max(inner_ratio, std::clamp(*style.inner_radius, 0.0F, 0.9F));
+  }
+  const float inner_radius = inner_ratio * radius;
   const std::size_t positive_count = static_cast<std::size_t>(std::count_if(
       shares.begin(), shares.end(), [](double share) { return share > 0.0; }));
   if (positive_count == 0) {
-    context.DrawCircle(center, radius, empty_color);
+    if (inner_radius > 0.0F) {
+      context.FillPath(SectorPath(center, radius, inner_radius,
+                                  -std::numbers::pi_v<double> * 0.5,
+                                  std::numbers::pi_v<double> * 2.0, true),
+                       empty_color);
+    } else {
+      context.DrawCircle(center, radius, empty_color);
+    }
     return;
   }
 
@@ -109,7 +161,8 @@ void PaintPie(PaintContext& context, Size size, std::span<const double> shares,
   for (std::size_t index = 0; index < shares.size(); ++index) {
     const double sweep = shares[index] * 2.0 * std::numbers::pi_v<double>;
     if (sweep <= 0.0) continue;
-    const auto path = SectorPath(center, radius, start, sweep, positive_count == 1);
+    const auto path = SectorPath(center, radius, inner_radius, start, sweep,
+                                 positive_count == 1);
     context.FillPath(path, styles[index].fill);
     if (styles[index].stroke_style.width > 0.0F) {
       context.StrokePath(path, styles[index].stroke, styles[index].stroke_style);

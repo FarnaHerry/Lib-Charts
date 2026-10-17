@@ -576,6 +576,10 @@ struct PieChartStyle {
   std::optional<Brush> stroke;
   /// SDK stroke configuration for slice outlines; the resolved default width is 1 DIP.
   std::optional<StrokeStyle> stroke_style;
+  /// Donut hole radius as a fraction of the outer radius; the default 0 renders a solid pie.
+  /// Accepted values span [0.0, 0.9]. Chart-wide via PieChart::Style() or per slice; slices
+  /// render as ring segments sharing the largest resolved value.
+  std::optional<float> inner_radius;
   bool operator==(const PieChartStyle&) const = default;
 };
 
