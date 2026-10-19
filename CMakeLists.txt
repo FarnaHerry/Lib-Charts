@@ -88,4 +88,9 @@ if (CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT HUXERUI_LIBRARY_G
         huxerui_enable_codegen(charts_tests)
         add_test(NAME charts_tests COMMAND charts_tests)
     endif ()
+
+    option(HUXERUI_CHARTS_BUILD_PREVIEW "Build the Charts preview and rounded donut demo" OFF)
+    if (HUXERUI_CHARTS_BUILD_PREVIEW)
+        add_subdirectory(examples/preview)
+    endif ()
 endif ()

@@ -64,6 +64,7 @@ View TrafficMix() {
   });
 
   return PieChart(data)
+      .Style({.inner_radius = 0.62F, .rounded_caps = true})
       .Title("Traffic mix")
       .SliceStyle("upload", {.fill = Brush(Color::Rgb(230, 184, 102))})
       .SliceStyle("download", {.fill = Brush(Color::Rgb(72, 118, 232))})
@@ -71,12 +72,27 @@ View TrafficMix() {
 }
 ```
 
+`rounded_caps` opts into a rounded donut with the largest share in its center. Hover a
+segment to expand it with a soft halo and show its percentage in the same color.
+Expansion, halo opacity and text color ease smoothly over 180 ms, including interrupted hover changes;
+leaving the segment restores the largest share and the default text color. Omit
+the option to keep the existing solid pie or ordinary donut. A rounded donut uses
+`inner_radius = 0.62` if no hole radius is supplied.
+
 Call these composables from your app's UI inside a Flat or Material theme. Set the chart dimensions with `Frame`.
 
 ## Examples and documentation
 
 - [Example gallery](examples/preview/src/app.cpp): Cartesian and pie charts, stacking, selection, interactive legends and animations.
 - [API reference](include/huxerui/charts.h): detailed usage, data requirements, configuration options and examples.
+
+To build the focused rounded donut demo on Windows, configure the project with `HUXERUI_CHARTS_BUILD_PREVIEW=ON`, then build and run `rounded_donut_demo`:
+
+```powershell
+cmake -S . -B build -DHUXERUI_HOME="C:/path/to/HuxerUI" -DHUXERUI_CHARTS_BUILD_PREVIEW=ON
+cmake --build build --config Debug --target rounded_donut_demo
+& .\build\examples\preview\Debug\rounded_donut_demo.exe
+```
 
 ## License
 

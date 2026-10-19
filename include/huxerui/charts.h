@@ -580,6 +580,12 @@ struct PieChartStyle {
   /// Accepted values span [0.0, 0.9]. Chart-wide via PieChart::Style() or per slice; slices
   /// render as ring segments sharing the largest resolved value.
   std::optional<float> inner_radius;
+  /// Draw donut segments with round ends and show the largest share in the center. Hovering a
+  /// segment smoothly expands it with a halo and shows its share in the matching color. Hover transitions
+  /// take 180 ms and honor reduced-motion settings. Applies chart-wide through Style() or ChartTheme::pie;
+  /// SliceStyle() cannot change the geometry of an individual segment. An unset/zero inner_radius
+  /// uses 0.62 when enabled. The default false preserves the ordinary pie/donut appearance.
+  std::optional<bool> rounded_caps;
   bool operator==(const PieChartStyle&) const = default;
 };
 

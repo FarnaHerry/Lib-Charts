@@ -1,6 +1,7 @@
 /.huxerui/
 /dist/
 /build/
+/traces/
 /cmake-build-*/
 /.cache/
 /.agents/

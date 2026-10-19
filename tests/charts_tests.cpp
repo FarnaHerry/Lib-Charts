@@ -1011,6 +1011,118 @@ void RuntimeTests() {
   runtime.BuildFrame();
   Check(true, "Narrow constraints must not produce invalid geometry");
 }
+
+bool pie_rounded = true;
+
+View PieApp() {
+  PieChartStyle style;
+  if (pie_rounded) style.rounded_caps = true;
+  else style.inner_radius = 0.62F;
+  return FlatTheme {
+    PieChart(PieChartData({{"upload", "Upload", 72.0}, {"download", "Download", 28.0}}))
+        .Style(style)
+        .SliceStyle("upload", {.fill = Brush(Color::Rgb(49, 100, 216))})
+        .SliceStyle("download", {.fill = Brush(Color::Rgb(224, 151, 54))})
+        .With(Frame{.width = 160.0F, .height = 160.0F}),
+  };
+}
+
+struct PiePaint {
+  std::string percentage;
+  Color percentage_color;
+  float max_arc_width = 0.0F;
+  int rounded_arcs = 0;
+  int filled_slices = 0;
+};
+
+PiePaint ReadPiePaint(const FrameCommit& frame) {
+  PiePaint result;
+  const auto visit = [&](auto&& self, const RenderNode* node) -> void {
+    if (!node) return;
+    for (const auto& command : node->content.Commands()) {
+      if (const auto* text = std::get_if<DrawTextCommand>(&command)) {
+        const auto value = text->text.PlainText();
+        if (!value.empty() && value.back() == '%') {
+          result.percentage = value;
+          result.percentage_color = text->style.foreground;
+        }
+      }
+      if (const auto* stroke = std::get_if<StrokePathCommand>(&command)) {
+        if (stroke->style.cap == StrokeCap::Round && stroke->style.width > 10.0F) {
+          ++result.rounded_arcs;
+          result.max_arc_width = std::max(result.max_arc_width, stroke->style.width);
+        }
+      }
+      if (std::holds_alternative<FillPathCommand>(command)) ++result.filled_slices;
+    }
+    for (const auto* child : node->children) self(self, child);
+  };
+  visit(visit, frame.render_frame.scene.root);
+  return result;
+}
+
+void PieTests() {
+  pie_rounded = true;
+  TestPlatform platform;
+  const Application app{PieApp};
+  Runtime runtime(app, platform);
+  runtime.SetWindowMetrics({.viewport = {160, 160}});
+  auto paint = ReadPiePaint(runtime.BuildFrame());
+  Check(paint.percentage == "72%" && paint.rounded_arcs >= 4,
+        "Rounded pie must paint round-ended segments and show the largest share");
+  const auto resting = paint;
+  runtime.HandlePointerEvent({.type = PointerEventType::Move, .position = {18, 62}});
+  paint = ReadPiePaint(runtime.BuildFrame());
+  Check(paint.percentage == "28%", "Hovering a rounded segment must show its share");
+  Check(paint.percentage_color == resting.percentage_color && paint.max_arc_width == resting.max_arc_width,
+        "Hover appearance must begin from its current values without jumping");
+  platform.now += 0.09;
+  paint = ReadPiePaint(runtime.BuildFrame());
+  Check(paint.percentage_color != resting.percentage_color && paint.percentage_color != Color::Rgb(224, 151, 54)
+            && paint.max_arc_width > resting.max_arc_width,
+        "Hover must interpolate both the label color and arc expansion during the transition");
+  platform.now += 0.12;
+  paint = ReadPiePaint(runtime.BuildFrame());
+  Check(paint.percentage_color == Color::Rgb(224, 151, 54),
+        "Hovered percentage must use the resolved slice fill color");
+  Check(paint.rounded_arcs == resting.rounded_arcs + 3 && paint.max_arc_width > resting.max_arc_width,
+        "Hover must expand the active segment and add its halo");
+  runtime.HandlePointerEvent({.type = PointerEventType::Move, .position = {10, 62}});
+  paint = ReadPiePaint(runtime.BuildFrame());
+  Check(paint.percentage == "28%", "Hover must stay active on the expanded outer edge");
+  runtime.HandlePointerEvent({.type = PointerEventType::Move, .position = {130, 90}});
+  runtime.BuildFrame();
+  platform.now += 0.06;
+  const auto interrupted = ReadPiePaint(runtime.BuildFrame());
+  runtime.HandlePointerEvent({.type = PointerEventType::Move, .position = {18, 62}});
+  paint = ReadPiePaint(runtime.BuildFrame());
+  Check(paint.percentage_color == interrupted.percentage_color,
+        "Rapid hover changes must retarget from the currently displayed color");
+  platform.now += 0.21;
+  runtime.BuildFrame();
+  runtime.HandlePointerEvent({.type = PointerEventType::Move, .position = {130, 90}});
+  runtime.BuildFrame();
+  platform.now += 0.21;
+  paint = ReadPiePaint(runtime.BuildFrame());
+  Check(paint.percentage == "72%" && paint.percentage_color == Color::Rgb(49, 100, 216),
+        "Moving between segments must update the highlighted percentage color");
+  runtime.HandlePointerEvent({.type = PointerEventType::Move, .position = {80, 80}});
+  runtime.BuildFrame();
+  platform.now += 0.21;
+  paint = ReadPiePaint(runtime.BuildFrame());
+  Check(paint.percentage == "72%", "Leaving a segment must restore the largest share");
+  Check(paint.percentage_color == resting.percentage_color && paint.rounded_arcs == resting.rounded_arcs,
+        "Leaving a segment must restore the default label color and remove its halo");
+
+  pie_rounded = false;
+  TestPlatform ordinary_platform;
+  const Application ordinary_app{PieApp};
+  Runtime ordinary(ordinary_app, ordinary_platform);
+  ordinary.SetWindowMetrics({.viewport = {160, 160}});
+  paint = ReadPiePaint(ordinary.BuildFrame());
+  Check(paint.percentage.empty() && paint.filled_slices >= 3,
+        "The ordinary donut must retain filled slices without center text");
+}
 } // namespace
 
 int main() {
@@ -1024,6 +1136,7 @@ int main() {
     HighlightGeometryTests();
     HighlightInteractionTests();
     RuntimeTests();
+    PieTests();
     ControlledTests();
     ScatterNavigationTests();
     std::cout << checks << " checks passed\n";

@@ -277,6 +277,7 @@ View SelectionNote(const std::optional<ChartDatumInfo>& selection) {
     CardHeading("PIE / PART TO WHOLE", "Traffic mix", "A compact view of the relative transfer totals."),
     Row {
       PieChart(initial_traffic_mix)
+          .Style({.inner_radius = 0.62F, .rounded_caps = true})
           .SliceStyle("upload", {.fill = Brush(Color::Rgb(214, 146, 55))})
           .SliceStyle("download", {.fill = Brush(Color::Rgb(55, 103, 218))})
           .With(Frame{.width = 160.0F, .height = 160.0F}),
