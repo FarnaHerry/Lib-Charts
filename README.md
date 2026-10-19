@@ -79,6 +79,13 @@ leaving the segment restores the largest share and the default text color. Omit
 the option to keep the existing solid pie or ordinary donut. A rounded donut uses
 `inner_radius = 0.62` if no hole radius is supplied.
 
+When every value is zero, the declared entries divide the pie into equal colored
+segments. The rounded donut still displays `0%` in its center, including while
+hovering a segment; the equal areas are placeholders, not nonzero data shares.
+An empty data snapshot retains the neutral empty state. With any positive value,
+segments and percentages follow the actual proportions and zero-valued entries
+remain invisible.
+
 Call these composables from your app's UI inside a Flat or Material theme. Set the chart dimensions with `Frame`.
 
 ## Examples and documentation

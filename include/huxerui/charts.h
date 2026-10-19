@@ -318,8 +318,9 @@ struct PieDatum {
 
 /// Owns an immutable snapshot of values displayed by PieChart.
 ///
-/// Datum keys must be nonempty and unique. Values must be finite and nonnegative. An empty or all-zero snapshot
-/// renders the chart's neutral empty state; positive values are normalized without overflowing their sum.
+/// Datum keys must be nonempty and unique. Values must be finite and nonnegative. An empty snapshot renders
+/// the chart's neutral empty state. An all-zero snapshot paints equally sized slices for the declared entries,
+/// while percentages remain zero. Positive values are normalized without overflowing their sum.
 /// @code
 /// PieChartData data({{"upload", "Upload", 72.0}, {"download", "Download", 28.0}});
 /// @endcode
@@ -585,6 +586,7 @@ struct PieChartStyle {
   /// take 180 ms and honor reduced-motion settings. Applies chart-wide through Style() or ChartTheme::pie;
   /// SliceStyle() cannot change the geometry of an individual segment. An unset/zero inner_radius
   /// uses 0.62 when enabled. The default false preserves the ordinary pie/donut appearance.
+  /// All-zero data uses equal segments with 0% in the center, including during hover.
   std::optional<bool> rounded_caps;
   bool operator==(const PieChartStyle&) const = default;
 };

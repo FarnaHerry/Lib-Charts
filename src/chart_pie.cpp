@@ -294,6 +294,7 @@ Path SectorPath(Point center, float radius, float inner_radius, double start,
 }
 
 void PaintPie(PaintContext& context, Size size, std::span<const double> shares,
+              std::span<const double> value_shares,
               std::span<const ResolvedSliceStyle> styles, Color empty_color, bool rounded_caps,
               std::optional<std::size_t> hovered, Color center_color, std::span<const float> highlights) {
   const Point center{size.width * 0.5F, size.height * 0.5F};
@@ -366,7 +367,7 @@ void PaintPie(PaintContext& context, Size size, std::span<const double> shares,
       active = static_cast<std::size_t>(std::distance(shares.begin(),
           std::max_element(shares.begin(), shares.end())));
     }
-    const int percent = active == shares.size() ? 0 : static_cast<int>(std::lround(shares[active] * 100.0));
+    const int percent = active == shares.size() ? 0 : static_cast<int>(std::lround(value_shares[active] * 100.0));
     const float font_size = std::clamp(radius * 0.3F, 11.0F, 30.0F);
     context.DrawText({center.x - inner_radius, center.y - font_size, inner_radius * 2.0F, font_size * 2.0F},
         std::to_string(percent) + "%",
@@ -396,6 +397,12 @@ void PaintPie(PaintContext& context, Size size, std::span<const double> shares,
   const auto charts = UseEnvironment<ChartTheme>();
   const auto data = config->data.Data();
   const auto shares = Shares(data);
+  auto geometry_shares = shares;
+  if (!data.empty() && std::none_of(data.begin(), data.end(),
+      [](const PieDatum& datum) { return datum.value > 0.0; })) {
+    // Show every declared category while keeping actual percentages and semantics at zero.
+    std::fill(geometry_shares.begin(), geometry_shares.end(), 1.0 / static_cast<double>(data.size()));
+  }
   std::vector<std::string> labels;
   labels.reserve(data.size());
   for (const auto& datum : data) labels.push_back(UseString(datum.label));
@@ -471,9 +478,9 @@ void PaintPie(PaintContext& context, Size size, std::span<const double> shares,
     if (!rounded_caps) motion.Set(0.0F);
     else if (motion.Target() != target) motion.AnimateTo(target, hover_tween);
   }
-  hover_motion->TargetColor(hovered && shares[*hovered] > 0.0
+  hover_motion->TargetColor(hovered && geometry_shares[*hovered] > 0.0
       ? SliceColor(styles[*hovered].fill, theme.colors.on_surface) : theme.colors.on_surface);
-  auto plot = Canvas([shares, styles, empty_color, rounded_caps, hovered,
+  auto plot = Canvas([shares, geometry_shares, styles, empty_color, rounded_caps, hovered,
                       background = appearance.background, hover_motion, datum_keys,
                       painted_size](PaintContext& context, Size size) {
     *painted_size = size;
@@ -481,14 +488,14 @@ void PaintPie(PaintContext& context, Size size, std::span<const double> shares,
     std::vector<float> highlights;
     highlights.reserve(datum_keys.size());
     for (const auto& key : datum_keys) highlights.push_back(hover_motion->arcs.at(key).Value());
-    PaintPie(context, size, shares, styles, empty_color, rounded_caps, hovered,
+    PaintPie(context, size, geometry_shares, shares, styles, empty_color, rounded_caps, hovered,
              hover_motion->LabelColor(), highlights);
   }).With(Semantics{.role = SemanticRole::Image, .label = summary});
   if (rounded_caps) {
     plot = std::move(plot).With(PieHoverAnimation{hover_motion, theme.motion.reduced_motion}).On<ViewEvents::Hover>(
-        [shares, inner_ratio, painted_size, datum_keys = std::move(datum_keys), hovered_key, hovered](const HoverEvent& event) {
+        [geometry_shares, inner_ratio, painted_size, datum_keys = std::move(datum_keys), hovered_key, hovered](const HoverEvent& event) {
           const auto index = event.type == HoverEventType::Leave ? std::nullopt
-              : HitRoundedRing(event.position, *painted_size, shares, inner_ratio, hovered);
+              : HitRoundedRing(event.position, *painted_size, geometry_shares, inner_ratio, hovered);
           const auto key = index ? std::optional(datum_keys[*index]) : std::nullopt;
           if (hovered_key.Get() != key) hovered_key = key;
         });

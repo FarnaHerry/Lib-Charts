@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <iostream>
+#include <numbers>
 #include <stdexcept>
 
 using namespace huxerui;
@@ -1033,6 +1034,8 @@ struct PiePaint {
   float max_arc_width = 0.0F;
   int rounded_arcs = 0;
   int filled_slices = 0;
+  std::vector<StrokePathCommand> arcs;
+  std::vector<FillPathCommand> fills;
 };
 
 PiePaint ReadPiePaint(const FrameCommit& frame) {
@@ -1050,15 +1053,118 @@ PiePaint ReadPiePaint(const FrameCommit& frame) {
       if (const auto* stroke = std::get_if<StrokePathCommand>(&command)) {
         if (stroke->style.cap == StrokeCap::Round && stroke->style.width > 10.0F) {
           ++result.rounded_arcs;
+          result.arcs.push_back(*stroke);
           result.max_arc_width = std::max(result.max_arc_width, stroke->style.width);
         }
       }
-      if (std::holds_alternative<FillPathCommand>(command)) ++result.filled_slices;
+      if (const auto* fill = std::get_if<FillPathCommand>(&command)) {
+        ++result.filled_slices;
+        result.fills.push_back(*fill);
+      }
     }
     for (const auto* child : node->children) self(self, child);
   };
   visit(visit, frame.render_frame.scene.root);
   return result;
+}
+
+std::vector<PieDatum> zero_pie_data;
+std::optional<State<int>> zero_pie_revision;
+bool zero_pie_rounded = true;
+
+View ZeroPieApp() {
+  return FlatTheme {
+    Scope([] {
+      const auto revision = UseState(0);
+      zero_pie_revision = revision;
+      static_cast<void>(revision.Get());
+      return PieChart(PieChartData(zero_pie_data))
+          .Style({.inner_radius = 0.62F, .rounded_caps = zero_pie_rounded})
+          .With(Frame{.width = 160.0F, .height = 160.0F});
+    }),
+  };
+}
+
+void ZeroPieTests() {
+  // Compare the actual paint and hit regions against ordinary equal-valued data.
+  for (const int count : {1, 2, 3, 5}) {
+    zero_pie_rounded = true;
+    zero_pie_data.clear();
+    for (int index = 0; index < count; ++index) {
+      zero_pie_data.push_back({std::to_string(index), "Entry " + std::to_string(index), 0.0});
+    }
+    TestPlatform platform;
+    const Application app{ZeroPieApp};
+    Runtime runtime(app, platform);
+    runtime.SetWindowMetrics({.viewport = {160, 160}});
+    const auto zero_frame = runtime.BuildFrame();
+    const auto zero = ReadPiePaint(zero_frame);
+    Check(zero.percentage == "0%" && zero.rounded_arcs == count * 2,
+          "All-zero pies must paint every declared entry and show 0%");
+    Check(std::none_of(zero_frame.semantic_frame->nodes.begin(), zero_frame.semantic_frame->nodes.end(),
+        [](const auto& node) { return node.label.find('%') != std::string::npos; }),
+        "Equal placeholder areas must not announce fabricated percentages");
+
+    for (auto& datum : zero_pie_data) datum.value = 1.0;
+    *zero_pie_revision = 1;
+    const auto equal = ReadPiePaint(runtime.BuildFrame());
+    Check(zero.arcs == equal.arcs,
+          "All-zero arc geometry and colors must match equal positive values exactly");
+    Check(equal.percentage == std::to_string(static_cast<int>(std::lround(100.0 / count))) + "%",
+          "Leaving the zero state must restore actual percentages");
+
+    for (auto& datum : zero_pie_data) datum.value = 0.0;
+    *zero_pie_revision = 2;
+    Check(ReadPiePaint(runtime.BuildFrame()).percentage == "0%",
+          "Returning to all-zero data must clear the previous percentage");
+    const auto theme = FlatLightThemeSpec();
+    const std::vector<Color> palette{theme.colors.primary, theme.colors.secondary, theme.colors.error,
+                                   theme.colors.on_surface_variant, theme.colors.outline};
+    for (int index = 0; index < count; ++index) {
+      const double angle = -std::numbers::pi_v<double> * 0.5 +
+          2.0 * std::numbers::pi_v<double> * (index + 0.5) / count;
+      runtime.HandlePointerEvent({.type = PointerEventType::Move,
+          .position = {80.0F + 55.0F * static_cast<float>(std::cos(angle)),
+                       80.0F + 55.0F * static_cast<float>(std::sin(angle))}});
+      runtime.BuildFrame();
+      platform.now += 0.21;
+      const auto hovered = ReadPiePaint(runtime.BuildFrame());
+      Check(hovered.percentage == "0%" && hovered.rounded_arcs > zero.rounded_arcs,
+            "Every zero-valued placeholder must be hittable and keep 0% during hover");
+      Check(hovered.percentage_color == palette[StableHash(std::to_string(index)) % palette.size()],
+            "Zero-value hover must use the matching declared entry color");
+    }
+    runtime.HandlePointerEvent({.type = PointerEventType::Move, .position = {80, 80}});
+    runtime.BuildFrame();
+    platform.now += 0.21;
+    Check(ReadPiePaint(runtime.BuildFrame()).arcs == zero.arcs,
+          "Leaving zero-value hover must restore equal segments without a halo");
+
+    zero_pie_rounded = false;
+    *zero_pie_revision = 3;
+    const auto ordinary_zero = ReadPiePaint(runtime.BuildFrame());
+    for (auto& datum : zero_pie_data) datum.value = 1.0;
+    *zero_pie_revision = 4;
+    const auto ordinary_equal = ReadPiePaint(runtime.BuildFrame());
+    Check(ordinary_zero.percentage.empty() && ordinary_zero.rounded_arcs == 0 &&
+          ordinary_zero.fills == ordinary_equal.fills,
+          "Ordinary all-zero donuts must use equal filled sectors without adding center text");
+
+    zero_pie_rounded = true;
+    for (auto& datum : zero_pie_data) datum.value = 0.0;
+    zero_pie_data[0].value = 9.0;
+    *zero_pie_revision = 5;
+    const auto mixed = ReadPiePaint(runtime.BuildFrame());
+    Check(mixed.percentage == "100%" && mixed.rounded_arcs == 2,
+          "With a positive total, zero-valued entries must stop taking placeholder space");
+
+    zero_pie_data.clear();
+    *zero_pie_revision = 6;
+    const auto empty = ReadPiePaint(runtime.BuildFrame());
+    Check(empty.percentage == "0%" && empty.rounded_arcs == 0,
+          "An empty snapshot must keep the neutral empty state without dividing by zero");
+    zero_pie_revision.reset();
+  }
 }
 
 void PieTests() {
@@ -1137,6 +1243,7 @@ int main() {
     HighlightInteractionTests();
     RuntimeTests();
     PieTests();
+    ZeroPieTests();
     ControlledTests();
     ScatterNavigationTests();
     std::cout << checks << " checks passed\n";
