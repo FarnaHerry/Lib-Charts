@@ -332,8 +332,7 @@ public:
   [[nodiscard]] std::span<const PieDatum> Data() const noexcept;
   bool operator==(const PieChartData&) const = default;
 private:
-  std::shared_ptr<const std::vector<PieDatum>> data_ =
-      std::make_shared<const std::vector<PieDatum>>();
+  std::shared_ptr<const std::vector<PieDatum>> data_;
 };
 
 /// Describes a finite numeric interval. Explicit axis/size domains require min < max.
@@ -576,17 +575,19 @@ struct PieChartStyle {
   /// Slice outline Brush; the unresolved value is the surrounding SDK surface color.
   std::optional<Brush> stroke;
   /// SDK stroke configuration for slice outlines; the resolved default width is 1 DIP.
+  /// Rounded donuts use its width; their continuous outlines always use round caps and joins.
   std::optional<StrokeStyle> stroke_style;
   /// Donut hole radius as a fraction of the outer radius; the default 0 renders a solid pie.
-  /// Accepted values span [0.0, 0.9]. Chart-wide via PieChart::Style() or per slice; slices
-  /// render as ring segments sharing the largest resolved value.
+  /// Must be finite and within [0.0, 0.9]. Applies chart-wide through Style() or ChartTheme::pie,
+  /// including the empty state. SliceStyle() cannot override the hole radius.
   std::optional<float> inner_radius;
   /// Draw donut segments with round ends and show the largest share in the center. Hovering a
   /// segment smoothly expands it with a halo and shows its share in the matching color. Hover transitions
   /// take 180 ms and honor reduced-motion settings. Applies chart-wide through Style() or ChartTheme::pie;
   /// SliceStyle() cannot change the geometry of an individual segment. An unset/zero inner_radius
   /// uses 0.62 when enabled. The default false preserves the ordinary pie/donut appearance.
-  /// All-zero data uses equal segments with 0% in the center, including during hover.
+  /// All-zero data uses equal segments with 0% in the center, including during hover. Very small slices
+  /// remain rounded dots; overlapping slices paint in data order and the last visible slice receives hover.
   std::optional<bool> rounded_caps;
   bool operator==(const PieChartStyle&) const = default;
 };
@@ -1073,7 +1074,10 @@ public:
 ///
 /// Slice colors use the chart palette selected by stable datum key. Labels and values remain ordinary application
 /// Views so callers can choose a layout that fits their use case. PieChart uses the same Title(), Appearance() and
-/// Style() and Accessibility() fluent naming as the other chart components; SliceStyle() supplies keyed overrides.
+/// Style() and Accessibility() fluent naming as the other chart components; SliceStyle() supplies keyed paint overrides.
+/// Set the component's height with Frame, including space for an optional title. Ordinary pies and donuts are
+/// static images; rounded donuts additionally provide pointer hover feedback. Legends, tooltips and selection
+/// remain application-owned Views and state.
 /// @code
 /// PieChartData data({{"upload", "Upload", 72.0}, {"download", "Download", 28.0}});
 /// return PieChart(data)
@@ -1102,16 +1106,17 @@ public:
   /// Overrides slice fill and outline for every datum in the chart.
   /// @param value Override fields layered over ChartTheme::pie and the resolved palette; unset fields inherit.
   /// @return The updated pie-chart declaration. Keyed SliceStyle() overrides still take precedence.
+  /// @throws std::invalid_argument during composition if the resolved style is invalid.
   PieChart Style(PieChartStyle value) &&;
   /// Overrides the fill and outline of one datum without copying the immutable data snapshot.
   /// @param key Stable key of a datum present in the snapshot.
   /// @param value Override fields layered over this chart's default pie style.
   /// @return The updated pie-chart declaration.
-  /// @throws std::invalid_argument during composition if key is unknown or a resolved style is invalid.
+  /// @throws std::invalid_argument during composition if key is unknown, geometry fields are set, or a style is invalid.
   PieChart SliceStyle(std::string key, PieChartStyle value) &&;
 private:
   std::shared_ptr<const charts_detail::PieConfig> config_;
-  PieChart Change(std::function<void(charts_detail::PieConfig&)>&& update);
+  template <class F> PieChart Change(F&& update);
 };
 
 } // namespace huxerui

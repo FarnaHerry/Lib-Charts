@@ -109,7 +109,8 @@ PieChart::PieChart(PieChartData data) {
   View::operator=(charts_detail::BuildPieChart(config_));
 }
 
-PieChart PieChart::Change(std::function<void(charts_detail::PieConfig&)>&& update) {
+template <class F> PieChart PieChart::Change(F&& update) {
+  // Preserve earlier declarations that still share the immutable configuration.
   auto config = std::make_shared<charts_detail::PieConfig>(*config_);
   update(*config);
   config_ = config;

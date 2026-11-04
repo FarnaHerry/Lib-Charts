@@ -2,7 +2,6 @@
 
 #include <huxerui/app.h>
 #include <huxerui/file.h>
-#include <huxerui/platform_adapter.h>
 #include <huxerui/render_scene.h>
 
 #include <cmath>
@@ -340,8 +339,15 @@ public:
   }
 };
 
-class TestPlatform final : public PlatformAdapter {
+class TestPlatform final : public UiWindow, public huxerui::Runtime {
 public:
+  TestPlatform() : huxerui::Runtime([this](std::function<void()> callback) { pending_.push_back(std::move(callback)); }) {}
+  ~TestPlatform() override { UiWindow::Retire(); huxerui::Runtime::Retire(); }
+  void Start(const Application& app) {
+    InitializeApplication(app);
+    InitializeWindow(*this, app.root_factory, app.options.window);
+  }
+  void OnRuntimeStopped() override {}
   TestResources resources;
   PlatformResources* Resources() noexcept override { return &resources; }
   double now = 0;
@@ -360,6 +366,8 @@ public:
     return {.size = {std::min(width, static_cast<float>(text.PlainText().size()) * 7), 14},
             .first_baseline = 10, .last_baseline = 10, .line_count = 1};
   }
+private:
+  std::vector<std::function<void()>> pending_;
 };
 
 Kind legend_kind = Kind::Line;
@@ -435,9 +443,10 @@ void LegendTests() {
   for (const auto kind : {Kind::Line, Kind::Area, Kind::Bar, Kind::Scatter}) {
     legend_kind = kind;
     legend_layer = 0;
-    TestPlatform platform;
     const Application app{LegendApp};
-    Runtime runtime(app, platform);
+    TestPlatform platform;
+    platform.Start(app);
+    UiWindow& runtime = platform;
     runtime.SetWindowMetrics({.viewport = {400, 300}});
     for (int layer = 0; layer < 3; ++layer) {
       legend_layer = layer;
@@ -572,7 +581,7 @@ struct HighlightPaint {
   std::vector<FillPathCommand> marks;
 };
 
-HighlightPaint ReadHighlights(Runtime& runtime) {
+HighlightPaint ReadHighlights(UiWindow& runtime) {
   HighlightPaint result;
   const auto visit = [&](auto&& self, const RenderNode* node) -> void {
     if (!node) return;
@@ -605,9 +614,10 @@ void HighlightGeometryTests() {
     for (const auto shape : {ChartMarkerShape::Circle, ChartMarkerShape::Square, ChartMarkerShape::Diamond,
                             ChartMarkerShape::Triangle, ChartMarkerShape::Cross}) {
       highlight_shape = shape;
-      TestPlatform platform;
       const Application app{HighlightApp};
-      Runtime runtime(app, platform);
+      TestPlatform platform;
+      platform.Start(app);
+      UiWindow& runtime = platform;
       runtime.SetWindowMetrics({.viewport = {440, 360}});
       runtime.BuildFrame();
       *highlight_selection = ChartDatumIdentity{"s", "a"};
@@ -624,9 +634,10 @@ void HighlightGeometryTests() {
             "A highlight must not resize the underlying marker");
     }
     highlight_marker_visible = false;
-    TestPlatform platform;
     const Application app{HighlightApp};
-    Runtime runtime(app, platform);
+    TestPlatform platform;
+    platform.Start(app);
+    UiWindow& runtime = platform;
     runtime.SetWindowMetrics({.viewport = {440, 360}});
     runtime.BuildFrame();
     *highlight_selection = ChartDatumIdentity{"s", "a"};
@@ -644,9 +655,10 @@ void HighlightGeometryTests() {
       for (const bool negative : {false, true}) {
         if (negative && mode == BarMode::PercentStacked) continue;
         highlight_negative = negative;
-        TestPlatform platform;
         const Application app{HighlightApp};
-        Runtime runtime(app, platform);
+        TestPlatform platform;
+        platform.Start(app);
+        UiWindow& runtime = platform;
         runtime.SetWindowMetrics({.viewport = {440, 360}});
         runtime.BuildFrame();
         for (const auto* series : {"s", "t"}) {
@@ -678,9 +690,10 @@ void HighlightGeometryTests() {
 void HighlightInteractionTests() {
   for (const bool dark : {false, true}) {
     highlight_dark = dark;
-    TestPlatform platform;
     const Application app{HighlightApp};
-    Runtime runtime(app, platform);
+    TestPlatform platform;
+    platform.Start(app);
+    UiWindow& runtime = platform;
     runtime.SetWindowMetrics({.viewport = {440, 360}});
     auto paint = ReadHighlights(runtime);
     Check(paint.rings.empty(), "An idle chart must not draw data highlights");
@@ -833,9 +846,10 @@ View ControlledApp() { return FlatTheme {ControlledChart()}; }
 void Recompose() { *revision = revision->Get() + 1; }
 
 void ControlledTests() {
-  TestPlatform platform;
   const Application app{ControlledApp};
-  Runtime runtime(app, platform);
+  TestPlatform platform;
+  platform.Start(app);
+  UiWindow& runtime = platform;
   runtime.SetWindowMetrics({.viewport = {500, 320}});
   auto get_nodes = [&] {
     std::vector<SemanticNode> nodes;
@@ -929,9 +943,10 @@ View ScatterNavigationApp() {
 void ScatterNavigationTests() {
   for (const auto sampling : {ScatterSampling::Exact, ScatterSampling::Representative}) {
     navigation_sampling = sampling;
-    TestPlatform platform;
     const Application app{ScatterNavigationApp};
-    Runtime runtime(app, platform);
+    TestPlatform platform;
+    platform.Start(app);
+    UiWindow& runtime = platform;
     runtime.SetWindowMetrics({.viewport = {400, 300}});
     const auto frame = runtime.BuildFrame().semantic_frame;
     const auto center = std::find_if(frame->nodes.begin(), frame->nodes.end(),
@@ -974,9 +989,10 @@ View TestApp() {
 }
 
 void RuntimeTests() {
-  TestPlatform platform;
   const Application app{TestApp};
-  Runtime runtime(app, platform);
+  TestPlatform platform;
+  platform.Start(app);
+  UiWindow& runtime = platform;
   runtime.SetWindowMetrics({.viewport = {800, 320}});
   auto frame = runtime.BuildFrame().semantic_frame;
   Check(frame != nullptr, "Runtime must produce semantics");
@@ -1012,7 +1028,6 @@ void RuntimeTests() {
   runtime.BuildFrame();
   Check(true, "Narrow constraints must not produce invalid geometry");
 }
-
 bool pie_rounded = true;
 
 View PieApp() {
@@ -1093,17 +1108,18 @@ void ZeroPieTests() {
     for (int index = 0; index < count; ++index) {
       zero_pie_data.push_back({std::to_string(index), "Entry " + std::to_string(index), 0.0});
     }
-    TestPlatform platform;
     const Application app{ZeroPieApp};
-    Runtime runtime(app, platform);
+    TestPlatform platform;
+    platform.Start(app);
+    UiWindow& runtime = platform;
     runtime.SetWindowMetrics({.viewport = {160, 160}});
     const auto zero_frame = runtime.BuildFrame();
     const auto zero = ReadPiePaint(zero_frame);
     Check(zero.percentage == "0%" && zero.rounded_arcs == count * 2,
           "All-zero pies must paint every declared entry and show 0%");
-    Check(std::none_of(zero_frame.semantic_frame->nodes.begin(), zero_frame.semantic_frame->nodes.end(),
-        [](const auto& node) { return node.label.find('%') != std::string::npos; }),
-        "Equal placeholder areas must not announce fabricated percentages");
+    Check(std::any_of(zero_frame.semantic_frame->nodes.begin(), zero_frame.semantic_frame->nodes.end(),
+        [](const auto& node) { return node.label.find("Entry 0 0%") != std::string::npos; }),
+        "All-zero semantics must announce real zero shares rather than equal placeholder shares");
 
     for (auto& datum : zero_pie_data) datum.value = 1.0;
     *zero_pie_revision = 1;
@@ -1169,9 +1185,10 @@ void ZeroPieTests() {
 
 void PieTests() {
   pie_rounded = true;
-  TestPlatform platform;
   const Application app{PieApp};
-  Runtime runtime(app, platform);
+  TestPlatform platform;
+  platform.Start(app);
+  UiWindow& runtime = platform;
   runtime.SetWindowMetrics({.viewport = {160, 160}});
   auto paint = ReadPiePaint(runtime.BuildFrame());
   Check(paint.percentage == "72%" && paint.rounded_arcs >= 4,
@@ -1220,14 +1237,174 @@ void PieTests() {
   Check(paint.percentage_color == resting.percentage_color && paint.rounded_arcs == resting.rounded_arcs,
         "Leaving a segment must restore the default label color and remove its halo");
 
+}
+
+void OrdinaryPieTests() {
   pie_rounded = false;
-  TestPlatform ordinary_platform;
   const Application ordinary_app{PieApp};
-  Runtime ordinary(ordinary_app, ordinary_platform);
+  TestPlatform ordinary_platform;
+  ordinary_platform.Start(ordinary_app);
+  UiWindow& ordinary = ordinary_platform;
   ordinary.SetWindowMetrics({.viewport = {160, 160}});
-  paint = ReadPiePaint(ordinary.BuildFrame());
+  const auto paint = ReadPiePaint(ordinary.BuildFrame());
   Check(paint.percentage.empty() && paint.filled_slices >= 3,
         "The ordinary donut must retain filled slices without center text");
+}
+
+PieChartData pie_scenario_data;
+PieChartStyle pie_scenario_style;
+ChartTheme pie_scenario_theme;
+std::string pie_scenario_title;
+std::optional<std::pair<std::string, PieChartStyle>> pie_scenario_slice;
+std::optional<State<int>> pie_scenario_revision;
+bool pie_scenario_enabled = true;
+bool pie_scenario_reduced_motion = false;
+int pie_scenario_compositions = 0;
+
+View PieScenarioApp() {
+  ++pie_scenario_compositions;
+  const auto revision = UseState(0);
+  pie_scenario_revision = revision;
+  static_cast<void>(revision.Get());
+  auto theme = FlatLightThemeSpec();
+  theme.motion.reduced_motion = pie_scenario_reduced_motion;
+  auto chart = PieChart(pie_scenario_data).Style(pie_scenario_style).Title(pie_scenario_title);
+  if (pie_scenario_slice) chart = std::move(chart).SliceStyle(pie_scenario_slice->first, pie_scenario_slice->second);
+  return FlatTheme(theme, ProvideEnvironment(pie_scenario_theme,
+      std::move(chart).With(Frame{.width = 160.0F, .height = 160.0F}, Enabled(pie_scenario_enabled))));
+}
+
+void PieRegressionTests() {
+  Reject([] { PieChartData({{"", "Empty key", 1}}); });
+  Reject([] { PieChartData({{"a", "A", 1}, {"a", "Duplicate", 2}}); });
+  for (const double value : {-1.0, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+    Reject([value] { PieChartData({{"a", "A", value}}); });
+  }
+  const PieChartData snapshot({{"a", "A", 1}});
+  const auto copied = snapshot;
+  Check(snapshot.Data().data() == copied.Data().data(), "Pie snapshots must share immutable data");
+
+  pie_scenario_data = PieChartData({{"a", "A", 72}, {"b", "B", 28}});
+  pie_scenario_style = {.inner_radius = 0.62F, .rounded_caps = true};
+  pie_scenario_title = "Traffic mix";
+  const Application app{PieScenarioApp};
+  TestPlatform platform;
+  platform.Start(app);
+  platform.SetWindowMetrics({.viewport = {160, 160}});
+  const auto& titled_frame = platform.BuildFrame();
+  auto paint = ReadPiePaint(titled_frame);
+  const auto image = std::find_if(titled_frame.semantic_frame->nodes.begin(), titled_frame.semantic_frame->nodes.end(),
+      [](const auto& node) { return node.role == SemanticRole::Image; });
+  Check(image != titled_frame.semantic_frame->nodes.end() && image->bounds.height > 0 && image->bounds.height < 160,
+        "A titled pie must reserve positive plotting height below its title");
+  Check(paint.percentage == "72%" && paint.rounded_arcs == 4, "A titled donut must still paint its slices and label");
+
+  const auto update = [&] { ++*pie_scenario_revision; return ReadPiePaint(platform.BuildFrame()); };
+  pie_scenario_title.clear();
+  pie_scenario_data = PieChartData({{"a", "A", 1}, {"b", "B", 2}, {"c", "C", 97}});
+  paint = update();
+  const auto second = paint.arcs[3].path.Bounds();
+  const Point small_center{second.x + second.width * 0.5F, second.y + second.height * 0.5F};
+  platform.HandlePointerEvent({.type = PointerEventType::Move, .position = small_center});
+  paint = ReadPiePaint(platform.BuildFrame());
+  Check(paint.percentage == "2%", "Overlapping rounded slices must hit the last painted slice");
+  platform.now += 0.21;
+  platform.BuildFrame();
+  platform.HandlePointerEvent({.type = PointerEventType::Move, .position = {small_center.x + 0.1F, small_center.y}});
+  Check(ReadPiePaint(platform.BuildFrame()).percentage == "2%", "Overlap hits must stay stable after hover expansion");
+
+  pie_scenario_enabled = false;
+  update();
+  platform.now += 0.21;
+  Check(ReadPiePaint(platform.BuildFrame()).percentage == "97%", "Disabled pies must clear their transient hover state");
+  pie_scenario_enabled = true;
+  pie_scenario_data = PieChartData({{"a", "A", 72}, {"b", "B", 28}});
+  pie_scenario_reduced_motion = true;
+  pie_scenario_theme.palette = {Color::Rgb(20, 100, 220)};
+  update();
+  platform.HandlePointerEvent({.type = PointerEventType::Move, .position = {18, 62}});
+  paint = ReadPiePaint(platform.BuildFrame());
+  Check(paint.percentage == "28%" && paint.percentage_color == pie_scenario_theme.palette.front(),
+        "Reduced motion must resolve hover color without elapsed animation time");
+  const auto compositions = pie_scenario_compositions;
+  platform.HandlePointerEvent({.type = PointerEventType::Move, .position = {130, 90}});
+  platform.BuildFrame();
+  platform.now += 0.3;
+  platform.BuildFrame();
+  Check(pie_scenario_compositions == compositions, "Hover and animation must not recompose the application");
+
+  pie_scenario_data = PieChartData({{"b", "B", 100}});
+  paint = update();
+  Check(paint.percentage == "100%", "Removing a hovered key must not leave stale slice indices");
+  platform.HandlePointerEvent({.type = PointerEventType::Move, .position = {80, 80}});
+  platform.BuildFrame();
+  pie_scenario_data = PieChartData({{"a", "A", std::numeric_limits<double>::max()},
+                                     {"b", "B", std::numeric_limits<double>::max()}});
+  paint = update();
+  Check(paint.percentage == "50%" && paint.rounded_arcs == 4, "Finite extreme values must normalize without overflow");
+
+  pie_scenario_data = PieChartData{};
+  pie_scenario_style = {.inner_radius = 0.8F};
+  paint = update();
+  Check(paint.fills.size() == 2 && !paint.fills.back().path.Contains({80, 80}, PathFillRule::NonZero) &&
+            !paint.fills.back().path.Contains({80, 30}, PathFillRule::NonZero) &&
+            paint.fills.back().path.Contains({80, 5}, PathFillRule::NonZero),
+        "An empty ordinary donut must preserve the configured hole");
+  pie_scenario_style = {.rounded_caps = true};
+  pie_scenario_theme.pie.inner_radius = 0.8F;
+  paint = update();
+  Check(paint.percentage == "0%" && !paint.fills.back().path.Contains({80, 30}, PathFillRule::NonZero) &&
+            paint.fills.back().path.Contains({80, 15}, PathFillRule::NonZero),
+        "An empty rounded donut must inherit its configured hole instead of reverting to the default");
+
+  pie_scenario_theme = {};
+  pie_scenario_style = {};
+  pie_scenario_data = PieChartData({{"a", "A", 1}});
+  paint = update();
+  Check(paint.percentage.empty() && paint.fills.size() == 2 &&
+            paint.fills.back().path.Contains({80, 80}, PathFillRule::NonZero),
+        "A single positive datum must paint a complete solid pie by default");
+
+  pie_scenario_reduced_motion = false;
+  pie_scenario_style = {.rounded_caps = true};
+  pie_scenario_data = PieChartData({{"a", "A", 50}, {"b", "B", 50}});
+  update();
+  platform.HandlePointerEvent({.type = PointerEventType::Move, .position = {80, 24}});
+  platform.BuildFrame();
+  platform.now += 0.3;
+  platform.BuildFrame();
+  pie_scenario_data = PieChartData({{"a", "A", 1}, {"b", "B", 99}});
+  ++*pie_scenario_revision;
+  const auto& retargeted = platform.BuildFrame();
+  Check(ReadPiePaint(retargeted).percentage == "1%" && retargeted.next_frame_deadline.has_value(),
+        "A data update under a stationary pointer must schedule its newly started hover animation");
+  platform.SetWindowMetrics({.viewport = {1, 1}});
+  platform.BuildFrame();
+  pie_scenario_revision.reset();
+  pie_scenario_reduced_motion = false;
+}
+
+void PieStyleValidationTests() {
+  pie_scenario_data = PieChartData({{"a", "A", 1}});
+  for (const float ratio : {-0.1F, 1.0F, std::numeric_limits<float>::quiet_NaN()}) {
+    pie_scenario_style = {.inner_radius = ratio};
+    const Application app{PieScenarioApp};
+    TestPlatform platform;
+    platform.Start(app);
+    Reject([&] { platform.BuildFrame(); });
+  }
+  pie_scenario_style = {};
+  for (const auto& override : std::vector<std::pair<std::string, PieChartStyle>>{
+           {"missing", {}}, {"a", {.inner_radius = 0.5F}}, {"a", {.rounded_caps = false}},
+           {"a", {.stroke_style = StrokeStyle{.width = -1}}}}) {
+    pie_scenario_slice = override;
+    const Application app{PieScenarioApp};
+    TestPlatform platform;
+    platform.Start(app);
+    Reject([&] { platform.BuildFrame(); });
+  }
+  pie_scenario_slice.reset();
+  pie_scenario_revision.reset();
 }
 } // namespace
 
@@ -1243,7 +1420,10 @@ int main() {
     HighlightInteractionTests();
     RuntimeTests();
     PieTests();
+    OrdinaryPieTests();
     ZeroPieTests();
+    PieRegressionTests();
+    PieStyleValidationTests();
     ControlledTests();
     ScatterNavigationTests();
     std::cout << checks << " checks passed\n";

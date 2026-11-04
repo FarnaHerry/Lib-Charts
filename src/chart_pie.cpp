@@ -4,507 +4,408 @@
 #include <algorithm>
 #include <cmath>
 #include <numbers>
-#include <memory>
 #include <unordered_set>
 
 namespace huxerui::charts_detail {
 namespace {
 
-struct ResolvedSliceStyle {
+constexpr double full_circle = std::numbers::pi_v<double> * 2.0;
+constexpr double top_angle = -std::numbers::pi_v<double> * 0.5;
+constexpr TweenSpec hover_tween{.duration = 0.18, .easing = Easing::EaseOut};
+
+struct SliceStyle {
   Brush fill;
   Brush stroke;
-  StrokeStyle stroke_style{.width = 1.0F, .join = StrokeJoin::Round};
-  std::optional<float> inner_radius;
+  StrokeStyle outline{.width = 1.0F, .join = StrokeJoin::Round};
 };
 
-void Merge(ResolvedSliceStyle& target, const PieChartStyle& source) {
+void Merge(SliceStyle& target, const PieChartStyle& source) {
   if (source.fill) target.fill = *source.fill;
   if (source.stroke) target.stroke = *source.stroke;
-  if (source.stroke_style) target.stroke_style = *source.stroke_style;
-  if (source.inner_radius && std::isfinite(*source.inner_radius)) {
-    target.inner_radius = *source.inner_radius;
-  }
-}
-
-void Merge(ChartStyle& target, const ChartStyle& source) {
-  if (source.background) target.background = source.background;
-  if (source.title) target.title = source.title;
+  if (source.stroke_style) target.outline = *source.stroke_style;
 }
 
 void Validate(const StrokeStyle& stroke) {
   Require(std::isfinite(stroke.width) && stroke.width >= 0.0F &&
               std::isfinite(stroke.miter_limit) && stroke.miter_limit >= 1.0F &&
-              std::isfinite(stroke.dash_offset),
-          "Invalid pie chart stroke style");
+              std::isfinite(stroke.dash_offset), "Invalid pie chart stroke style");
   for (const auto dash : stroke.dash_pattern) {
     Require(std::isfinite(dash) && dash >= 0.0F, "Invalid pie chart stroke dash pattern");
   }
 }
 
-std::vector<double> Shares(std::span<const PieDatum> data) {
-  double maximum = 0.0;
-  for (const auto& datum : data) maximum = std::max(maximum, datum.value);
-  if (maximum == 0.0) return std::vector<double>(data.size(), 0.0);
-
-  double scaled_total = 0.0;
-  for (const auto& datum : data) scaled_total += datum.value / maximum;
-  std::vector<double> shares;
-  shares.reserve(data.size());
-  for (const auto& datum : data) shares.push_back((datum.value / maximum) / scaled_total);
-  return shares;
-}
-
-std::string Summary(std::span<const PieDatum> data, std::span<const std::string> labels,
-                    std::span<const double> shares, const std::string& empty_label) {
-  if (std::none_of(data.begin(), data.end(), [](const PieDatum& datum) { return datum.value > 0.0; })) {
-    return empty_label;
-  }
-
-  std::string summary;
-  for (std::size_t index = 0; index < data.size(); ++index) {
-    if (data[index].value <= 0.0) continue;
-    if (!summary.empty()) summary += ", ";
-    summary += labels[index];
-    summary += " ";
-    summary += std::to_string(static_cast<int>(std::lround(shares[index] * 100.0)));
-    summary += "%";
-  }
-  return summary;
-}
-
-constexpr double full_circle = std::numbers::pi_v<double> * 2.0;
-constexpr double top_angle = -std::numbers::pi_v<double> * 0.5;
-
-struct RingGeometry {
-  Point center;
-  float radius = 0.0F;
-  float inner_radius = 0.0F;
-  float mid_radius = 0.0F;
-  float width = 0.0F;
-  double trim = 0.0;
+struct Slice {
+  std::string key;
+  double share = 0.0;
+  double area = 0.0;
+  SliceStyle style;
 };
 
-RingGeometry RoundedGeometry(Size size, float inner_ratio) {
-  RingGeometry result;
-  result.center = {size.width * 0.5F, size.height * 0.5F};
-  const float extent = std::min(size.width, size.height);
-  // Keep the expanded stroke and its halo inside the canvas.
-  const float hover_margin = std::min(10.0F, extent * 0.125F);
-  result.radius = std::max(0.0F, extent * 0.5F - 1.0F - hover_margin);
-  result.inner_radius = result.radius * inner_ratio;
-  result.width = result.radius - result.inner_radius;
-  result.mid_radius = (result.radius + result.inner_radius) * 0.5F;
-  if (result.mid_radius > 0.0F) {
-    // Reserve half a stroke at each end plus a small visible space between adjacent caps.
-    result.trim = (result.width * 0.5F + 2.0F) / result.mid_radius;
+struct PiePresentation {
+  std::vector<Slice> slices;
+  float inner_ratio = 0.0F;
+  bool rounded = false;
+  bool reduced_motion = false;
+  Brush background{Color::Transparent()};
+  TextStyle title_style;
+  Color text_color;
+  Color empty_color;
+  std::string title;
+  std::string summary;
+  float spacing = 0.0F;
+};
+
+std::shared_ptr<const PiePresentation> UsePiePresentation(const PieConfig& config) {
+  auto out = std::make_shared<PiePresentation>();
+  const auto& theme = UseTheme();
+  const auto charts = UseEnvironment<ChartTheme>();
+  out->rounded = config.style.rounded_caps.value_or(charts.pie.rounded_caps.value_or(false));
+  out->inner_ratio = config.style.inner_radius.value_or(charts.pie.inner_radius.value_or(0.0F));
+  Require(std::isfinite(out->inner_ratio) && out->inner_ratio >= 0.0F && out->inner_ratio <= 0.9F,
+          "Pie inner_radius must be finite and within [0, 0.9]");
+  if (out->rounded && out->inner_ratio == 0.0F) out->inner_ratio = 0.62F;
+  out->reduced_motion = theme.motion.reduced_motion;
+  out->background = config.appearance.background.value_or(charts.common.background.value_or(Brush(Color::Transparent())));
+  out->title_style = config.appearance.title.value_or(charts.common.title.value_or(
+      TextStyle{Font::System(theme.typography.title_large), theme.colors.on_surface}));
+  out->text_color = theme.colors.on_surface;
+  out->empty_color = theme.colors.surface_container_high;
+  out->empty_color.alpha *= 0.8F;
+  out->title = UseString(config.title);
+  out->summary = UseString(config.accessibility.summary);
+  out->spacing = theme.spacing.small;
+  auto palette = charts.palette;
+  if (palette.empty()) palette = {theme.colors.primary, theme.colors.secondary, theme.colors.error,
+                                 theme.colors.on_surface_variant, theme.colors.outline};
+
+  SliceStyle defaults{.fill = Brush(Color::Transparent()), .stroke = Brush(theme.colors.surface)};
+  Merge(defaults, charts.pie);
+  Merge(defaults, config.style);
+  Validate(defaults.outline);
+  const auto data = config.data.Data();
+  double maximum = 0.0;
+  for (const auto& datum : data) maximum = std::max(maximum, datum.value);
+  double total = 0.0;
+  // Scaling before summation keeps finite input near DBL_MAX from overflowing.
+  if (maximum > 0.0) for (const auto& datum : data) total += datum.value / maximum;
+  std::unordered_set<std::string> keys;
+  std::string summary;
+  out->slices.reserve(data.size());
+  for (const auto& datum : data) {
+    keys.insert(datum.key);
+    SliceStyle style{.fill = Brush(palette[StableHash(datum.key) % palette.size()]),
+                     .stroke = Brush(theme.colors.surface)};
+    Merge(style, charts.pie);
+    Merge(style, config.style);
+    if (const auto found = config.slice_styles.find(datum.key); found != config.slice_styles.end()) {
+      Merge(style, found->second);
+    }
+    Validate(style.outline);
+    const double share = maximum > 0.0 ? (datum.value / maximum) / total : 0.0;
+    const double area = maximum > 0.0 ? share : 1.0 / static_cast<double>(data.size());
+    out->slices.push_back({datum.key, share, area, std::move(style)});
+    if (!summary.empty()) summary += ", ";
+    summary += UseString(datum.label) + " " + std::to_string(static_cast<int>(std::lround(share * 100.0))) + "%";
   }
-  return result;
+  for (const auto& [key, style] : config.slice_styles) {
+    Require(keys.contains(key), "Unknown pie datum key in SliceStyle");
+    Require(!style.inner_radius && !style.rounded_caps, "Pie geometry applies chart-wide, not in SliceStyle");
+  }
+  if (out->summary.empty()) out->summary = data.empty() ? UseString(::charts::strings::empty) : std::move(summary);
+  return out;
 }
 
-float HoverGrowth(const RingGeometry& ring) {
-  return std::min(4.0F, ring.width * 0.15F);
+Point Polar(Point center, float radius, double angle) {
+  return {center.x + radius * static_cast<float>(std::cos(angle)),
+          center.y + radius * static_cast<float>(std::sin(angle))};
+}
+
+void AppendArc(Path& path, Point center, float radius, double start, double sweep) {
+  // Two half arcs also represent a complete circle without coincident arc endpoints.
+  const int count = std::max(1, static_cast<int>(std::ceil(std::abs(sweep) / std::numbers::pi_v<double>)));
+  for (int step = 1; step <= count; ++step) {
+    path.ArcTo({radius, radius}, 0.0F, ArcSize::Small,
+               sweep >= 0.0 ? ArcDirection::Clockwise : ArcDirection::CounterClockwise,
+               Polar(center, radius, start + sweep * static_cast<double>(step) / count));
+  }
+}
+
+Path SectorPath(Point center, float radius, float inner, double start, double sweep, bool whole) {
+  Path path;
+  path.MoveTo(Polar(center, radius, start));
+  AppendArc(path, center, radius, start, sweep);
+  if (whole) path.Close();
+  if (inner > 0.0F) {
+    if (whole) path.MoveTo(Polar(center, inner, start + sweep));
+    else path.LineTo(Polar(center, inner, start + sweep));
+    // Reverse the inner contour so NonZero filling preserves the donut hole.
+    AppendArc(path, center, inner, start + sweep, -sweep);
+  } else if (!whole) {
+    path.LineTo(center);
+  }
+  if (!whole || inner > 0.0F) path.Close();
+  return path;
 }
 
 Color SliceColor(const Brush& brush, Color fallback) {
-  if (const auto* solid = std::get_if<Color>(&brush.Get())) return *solid;
-  const auto* linear = std::get_if<LinearGradient>(&brush.Get());
-  const auto& stops = linear ? linear->stops : std::get<RadialGradient>(brush.Get()).stops;
-  if (stops.empty()) return fallback;
-  // Use the gradient's middle color for the solid center label and halo.
-  const auto upper = std::upper_bound(stops.begin(), stops.end(), 0.5F,
-      [](float offset, const GradientStop& stop) { return offset < stop.offset; });
-  if (upper == stops.begin()) return upper->color;
-  if (upper == stops.end()) return stops.back().color;
-  const auto& lower = *(upper - 1);
-  const float t = (0.5F - lower.offset) / (upper->offset - lower.offset);
-  return {std::lerp(lower.color.red, upper->color.red, t),
-          std::lerp(lower.color.green, upper->color.green, t),
-          std::lerp(lower.color.blue, upper->color.blue, t),
-          std::lerp(lower.color.alpha, upper->color.alpha, t)};
-}
-
-Color BlendColor(Color from, Color to, float progress) {
-  return {std::lerp(from.red, to.red, progress), std::lerp(from.green, to.green, progress),
-          std::lerp(from.blue, to.blue, progress), std::lerp(from.alpha, to.alpha, progress)};
-}
-
-constexpr TweenSpec hover_tween{.duration = 0.18, .easing = Easing::EaseOut};
-
-struct PieHoverState {
-  std::unordered_map<std::string, MotionController> arcs;
-  MotionController color_progress{1.0F};
-  Color color_from;
-  Color color_to;
-  bool initialized = false;
-
-  Color LabelColor() const { return BlendColor(color_from, color_to, color_progress.Value()); }
-
-  void TargetColor(Color color) {
-    if (!initialized) {
-      color_from = color_to = color;
-      initialized = true;
-    } else if (color_to != color) {
-      // Retarget from the displayed color so quick movement never restarts from an old endpoint.
-      color_from = LabelColor();
-      color_to = color;
-      color_progress.Set(0.0F);
-      color_progress.AnimateTo(1.0F, hover_tween);
+  return std::visit([&](const auto& source) -> Color {
+    if constexpr (std::is_same_v<std::decay_t<decltype(source)>, Color>) return source;
+    else {
+      if (source.stops.empty()) return fallback;
+      // A representative gradient stop keeps the label and halo solid and legible.
+      return std::min_element(source.stops.begin(), source.stops.end(), [](const auto& a, const auto& b) {
+        return std::abs(a.offset - 0.5F) < std::abs(b.offset - 0.5F);
+      })->color;
     }
-  }
+  }, brush.Get());
+}
+
+struct SliceGeometry {
+  Path path;
+  double start = 0.0;
+  double end = 0.0;
+  bool whole = false;
 };
 
-struct PieHoverAnimation {
-  std::shared_ptr<PieHoverState> state;
-  bool reduced_motion = false;
+struct PieSurface {
+  std::shared_ptr<const PiePresentation> presentation;
   class Extension;
 };
 
-class PieHoverAnimation::Extension final : public NodeExtension {
+class PieSurface::Extension final : public NodeExtension {
 public:
-  Extension(ViewNode&, const PieHoverAnimation& spec) : spec_(spec) {}
-  void Update(ViewNode&, const PieHoverAnimation& spec) { spec_ = spec; }
+  Extension(ViewNode&, const PieSurface& spec) : spec_(spec), color_from_(P().text_color), color_to_(P().text_color) {
+    SyncMotion();
+  }
 
-  FrameResult OnFrame(ViewNode&, const FrameInfo& frame) override {
+  void Update(ViewNode&, const PieSurface& spec) {
+    spec_ = spec;
+    SyncMotion();
+    dirty_ = true;
+    InvalidatePaint(PaintInvalidation::Both);
+  }
+
+  PaintInvalidation PrepareGeometry(ViewNode& node, TextMeasurer&) override {
+    const auto bounds = node.ContentBounds();
+    if (bounds == bounds_ && !dirty_) return PaintInvalidation::None;
+    bounds_ = bounds;
+    dirty_ = false;
+    center_ = {bounds.x + bounds.width * 0.5F, bounds.y + bounds.height * 0.5F};
+    const float extent = std::min(bounds.width, bounds.height);
+    float outline = 0.0F;
+    for (const auto& slice : P().slices) outline = std::max(outline, slice.style.outline.width);
+    const float margin = P().rounded ? std::min(10.0F, extent * 0.125F) + outline : outline * 0.5F;
+    radius_ = std::max(0.0F, extent * 0.5F - margin);
+    inner_ = radius_ * P().inner_ratio;
+    width_ = radius_ - inner_;
+    mid_ = (radius_ + inner_) * 0.5F;
+    geometry_.clear();
+    geometry_.resize(P().slices.size());
+    const auto positive = std::count_if(P().slices.begin(), P().slices.end(), [](const Slice& s) { return s.area > 0.0; });
+    double start = top_angle;
+    for (std::size_t i = 0; radius_ > 0.0F && i < P().slices.size(); ++i) {
+      const double sweep = P().slices[i].area * full_circle;
+      if (sweep <= 0.0) continue;
+      auto& arc = geometry_[i];
+      arc.whole = positive == 1;
+      arc.start = start;
+      arc.end = start + sweep;
+      if (P().rounded) {
+        const double trim = (width_ * 0.5F + 2.0F) / mid_;
+        const double inset = arc.whole ? 0.0 : std::min(trim, std::max(0.0, sweep * 0.5 - 0.00005));
+        arc.start += inset;
+        arc.end -= inset;
+        arc.path.MoveTo(Polar(center_, mid_, arc.start));
+        AppendArc(arc.path, center_, mid_, arc.start, arc.end - arc.start);
+        if (arc.whole) arc.path.Close();
+      } else {
+        arc.path = SectorPath(center_, radius_, inner_, start, sweep, arc.whole);
+      }
+      start += sweep;
+    }
+    if (pointer_) SetHover(node.IsEnabled() ? Hit(*pointer_) : std::nullopt);
+    return PaintInvalidation::Both;
+  }
+
+  FrameResult OnFrame(ViewNode& node, const FrameInfo& frame) override {
+    if (!node.IsEnabled()) { pointer_.reset(); SetHover(std::nullopt); }
     auto policy = frame;
-    policy.reduced_motion = policy.reduced_motion || spec_.reduced_motion;
-    const auto label = spec_.state->color_progress.Advance(policy);
+    policy.reduced_motion = policy.reduced_motion || P().reduced_motion;
+    auto label = color_progress_.Advance(policy);
     bool changed = label.changed;
-    bool needs_frame = label.needs_frame;
-    for (auto& [key, motion] : spec_.state->arcs) {
-      const auto advance = motion.Advance(policy);
-      changed = changed || advance.changed;
-      needs_frame = needs_frame || advance.needs_frame;
+    bool running = label.needs_frame;
+    for (auto& [key, motion] : motions_) {
+      const auto next = motion.Advance(policy);
+      changed = changed || next.changed;
+      running = running || next.needs_frame;
     }
     if (changed) InvalidatePaint(PaintInvalidation::Both);
-    return {.needs_frame = needs_frame};
+    // Geometry is prepared after OnFrame and may retarget hover without a new pointer event.
+    const bool rehit = P().rounded && pointer_ && (dirty_ || node.ContentBounds() != bounds_);
+    return {.needs_frame = running || rehit};
+  }
+
+  bool HoverHitTest(ViewNode&, Point point) const override { return P().rounded && bounds_.Contains(point); }
+
+  void OnHover(ViewNode& node, const HoverEvent& event) override {
+    pointer_ = event.type == HoverEventType::Leave ? std::nullopt : std::optional(event.position);
+    SetHover(pointer_ && node.IsEnabled() ? Hit(*pointer_) : std::nullopt);
+  }
+
+  void PaintBehindContent(const ViewNode&, PaintContext& paint) const override {
+    paint.PushClip(bounds_);
+    paint.FillPath(Path::RoundedRect(bounds_, {}), P().background);
+    if (radius_ > 0.0F) {
+      if (P().slices.empty()) paint.FillPath(SectorPath(center_, radius_, inner_, top_angle, full_circle, true), P().empty_color);
+      if (P().rounded) {
+        // Halos sit behind every slice; stable data order also defines the topmost hit target.
+        for (std::size_t i = 0; i < geometry_.size(); ++i) {
+          const float progress = motions_.at(P().slices[i].key).Value();
+          if (progress <= 0.0F || geometry_[i].path.IsEmpty()) continue;
+          for (int layer = 3; layer > 0; --layer) {
+            auto color = SliceColor(P().slices[i].style.fill, P().text_color);
+            color.alpha *= progress * 0.12F / layer;
+            paint.StrokePath(geometry_[i].path, color,
+                {.width = StrokeWidth(i) + layer * std::min(4.0F, radius_ * 0.1F),
+                 .cap = StrokeCap::Round, .join = StrokeJoin::Round});
+          }
+        }
+      }
+      for (std::size_t i = 0; i < geometry_.size(); ++i) {
+        const auto& path = geometry_[i].path;
+        if (path.IsEmpty()) continue;
+        const auto& style = P().slices[i].style;
+        if (P().rounded) {
+          const float width = StrokeWidth(i);
+          if (style.outline.width > 0.0F) paint.StrokePath(path, style.stroke,
+              {.width = width + style.outline.width * 2.0F, .cap = StrokeCap::Round, .join = StrokeJoin::Round});
+          paint.StrokePath(path, style.fill, {.width = width, .cap = StrokeCap::Round, .join = StrokeJoin::Round});
+        } else {
+          paint.FillPath(path, style.fill);
+          if (style.outline.width > 0.0F) paint.StrokePath(path, style.stroke, style.outline);
+        }
+      }
+      if (P().rounded) {
+        const auto active = ActiveSlice();
+        const int percent = active ? static_cast<int>(std::lround(P().slices[*active].share * 100.0)) : 0;
+        const float font_size = std::min(30.0F, std::min(radius_ * 0.3F, inner_ * 0.65F));
+        paint.DrawText({center_.x - inner_, center_.y - font_size, inner_ * 2.0F, font_size * 2.0F},
+            std::to_string(percent) + "%", {Font::System(font_size).WithWeight(FontWeight::SemiBold), LabelColor()},
+            {.align = TextAlign::Center, .vertical_align = TextVerticalAlign::Center, .wrap = TextWrap::NoWrap});
+      }
+    }
+    paint.PopClip();
   }
 
 private:
-  PieHoverAnimation spec_;
+  const PiePresentation& P() const { return *spec_.presentation; }
+
+  float StrokeWidth(std::size_t i) const {
+    return width_ + 2.0F * std::min(4.0F, width_ * 0.15F) * motions_.at(P().slices[i].key).Value();
+  }
+
+  std::optional<std::size_t> Hit(Point point) const {
+    if (!P().rounded || radius_ <= 0.0F) return std::nullopt;
+    const double distance = std::hypot(point.x - center_.x, point.y - center_.y);
+    double angle = std::atan2(point.y - center_.y, point.x - center_.x);
+    if (angle < top_angle) angle += full_circle;
+    for (std::size_t i = geometry_.size(); i-- > 0;) {
+      const auto& arc = geometry_[i];
+      if (arc.path.IsEmpty()) continue;
+      double nearest = std::numeric_limits<double>::infinity();
+      // Consider both sides of the seam when a rounded endpoint crosses twelve o'clock.
+      for (const double turn : {-full_circle, 0.0, full_circle}) {
+        const double clamped = std::clamp(angle + turn, arc.start, arc.end);
+        nearest = std::min(nearest, std::hypot(distance * std::cos(angle) - mid_ * std::cos(clamped),
+                                              distance * std::sin(angle) - mid_ * std::sin(clamped)));
+      }
+      if (nearest <= StrokeWidth(i) * 0.5F) return i;
+    }
+    return std::nullopt;
+  }
+
+  std::optional<std::size_t> ActiveSlice() const {
+    std::optional<std::size_t> largest;
+    for (std::size_t i = 0; i < P().slices.size(); ++i) {
+      if (P().slices[i].area <= 0.0) continue;
+      if (hovered_ == P().slices[i].key) return i;
+      if (!largest || P().slices[i].share > P().slices[*largest].share) largest = i;
+    }
+    return largest;
+  }
+
+  Color LabelColor() const {
+    const float t = color_progress_.Value();
+    return {std::lerp(color_from_.red, color_to_.red, t), std::lerp(color_from_.green, color_to_.green, t),
+            std::lerp(color_from_.blue, color_to_.blue, t), std::lerp(color_from_.alpha, color_to_.alpha, t)};
+  }
+
+  void SyncMotion() {
+    std::unordered_set<std::string> keys;
+    bool found_hover = false;
+    for (const auto& slice : P().slices) {
+      keys.insert(slice.key);
+      motions_.try_emplace(slice.key, 0.0F);
+      found_hover = found_hover || (slice.area > 0.0 && hovered_ == slice.key);
+    }
+    std::erase_if(motions_, [&](const auto& item) { return !keys.contains(item.first); });
+    if (!P().rounded || !found_hover) hovered_.reset();
+    TargetMotion();
+  }
+
+  void SetHover(std::optional<std::size_t> index) {
+    const auto key = index ? std::optional(P().slices[*index].key) : std::nullopt;
+    if (hovered_ == key) return;
+    hovered_ = key;
+    TargetMotion();
+    InvalidatePaint(PaintInvalidation::Both);
+  }
+
+  void TargetMotion() {
+    Color target = P().text_color;
+    for (const auto& slice : P().slices) {
+      auto& motion = motions_.at(slice.key);
+      const bool active = hovered_ == slice.key;
+      if (!P().rounded) motion.Set(0.0F);
+      else if (motion.Target() != (active ? 1.0F : 0.0F)) motion.AnimateTo(active ? 1.0F : 0.0F, hover_tween);
+      if (active) target = SliceColor(slice.style.fill, target);
+    }
+    if (target != color_to_) {
+      color_from_ = LabelColor();
+      color_to_ = target;
+      color_progress_.Set(0.0F);
+      color_progress_.AnimateTo(1.0F, hover_tween);
+    }
+  }
+
+  PieSurface spec_;
+  Rect bounds_;
+  Point center_;
+  float radius_ = 0.0F;
+  float inner_ = 0.0F;
+  float mid_ = 0.0F;
+  float width_ = 0.0F;
+  bool dirty_ = true;
+  std::vector<SliceGeometry> geometry_;
+  std::optional<Point> pointer_;
+  std::optional<std::string> hovered_;
+  std::unordered_map<std::string, MotionController> motions_;
+  MotionController color_progress_{1.0F};
+  Color color_from_;
+  Color color_to_;
 };
-
-std::pair<double, double> RoundedAngles(double start, double sweep, double trim, bool whole) {
-  if (whole) return {start, start + sweep};
-  // Keep even very small positive slices drawable as a rounded dot.
-  const double inset = std::min(trim, std::max(0.0, sweep * 0.5 - 0.00005));
-  return {start + inset, start + sweep - inset};
-}
-
-Path ArcPath(const RingGeometry& ring, double start, double end, bool whole) {
-  Path path;
-  const double sweep = end - start;
-  const int steps = std::clamp(static_cast<int>(std::ceil(sweep * ring.mid_radius / 3.0)), 1, 512);
-  for (int step = 0; step <= steps; ++step) {
-    const double angle = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
-    Point point{ring.center.x + ring.mid_radius * static_cast<float>(std::cos(angle)),
-                ring.center.y + ring.mid_radius * static_cast<float>(std::sin(angle))};
-    if (step == 0) path.MoveTo(point); else path.LineTo(point);
-  }
-  if (whole) path.Close();
-  return path;
-}
-
-std::optional<std::size_t> HitRoundedRing(Point point, Size size, std::span<const double> shares,
-                                          float inner_ratio, std::optional<std::size_t> hovered) {
-  const auto ring = RoundedGeometry(size, inner_ratio);
-  if (ring.radius <= 0.0F) return std::nullopt;
-  const double dx = static_cast<double>(point.x - ring.center.x);
-  const double dy = static_cast<double>(point.y - ring.center.y);
-  const double distance = std::hypot(dx, dy);
-  double angle = std::atan2(dy, dx) - top_angle;
-  if (angle < 0.0) angle += full_circle;
-  double start = 0.0;
-  const auto count = static_cast<std::size_t>(std::count_if(shares.begin(), shares.end(),
-      [](double share) { return share > 0.0; }));
-  bool in_hover_extension = false;
-  for (std::size_t index = 0; index < shares.size(); ++index) {
-    const double sweep = shares[index] * full_circle;
-    if (sweep <= 0.0) continue;
-    const auto [from, to] = RoundedAngles(start, sweep, ring.trim, count == 1);
-    const double clamped = std::clamp(angle, from, to);
-    const double arc_distance = std::hypot(
-        distance * std::cos(angle) - ring.mid_radius * std::cos(clamped),
-        distance * std::sin(angle) - ring.mid_radius * std::sin(clamped));
-    if (arc_distance <= ring.width * 0.5F) return index;
-    if (hovered == index && arc_distance <= ring.width * 0.5F + HoverGrowth(ring)) {
-      in_hover_extension = true;
-    }
-    start += sweep;
-  }
-  // Give another slice's original shape priority over the active slice's expansion.
-  return in_hover_extension ? hovered : std::nullopt;
-}
-
-Path SectorPath(Point center, float radius, float inner_radius, double start,
-                double sweep, bool whole_circle) {
-  const auto steps = std::clamp(
-      static_cast<int>(std::ceil(sweep * static_cast<double>(radius) / 3.0)), 2, 512);
-  const auto point = [&](float r, double angle) {
-    return Point{center.x + r * static_cast<float>(std::cos(angle)),
-                 center.y + r * static_cast<float>(std::sin(angle))};
-  };
-  Path path;
-  // inner_radius > 0 时渲染为环形段：外弧正向 + 内弧反向，NonZero 填充出孔。
-  const bool donut = inner_radius > 0.0F && inner_radius < radius;
-  if (whole_circle) {
-    if (!donut) {
-      path.MoveTo(point(radius, start));
-      for (int step = 1; step < steps; ++step) {
-        const double current = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
-        path.LineTo(point(radius, current));
-      }
-      path.Close();
-      return path;
-    }
-    path.MoveTo(point(radius, start));
-    for (int step = 1; step <= steps; ++step) {
-      const double current = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
-      path.LineTo(point(radius, current));
-    }
-    path.Close();
-    path.MoveTo(point(inner_radius, start + sweep));
-    for (int step = 1; step <= steps; ++step) {
-      const double current = start + sweep - sweep * static_cast<double>(step) / static_cast<double>(steps);
-      path.LineTo(point(inner_radius, current));
-    }
-    path.Close();
-    return path;
-  }
-  if (!donut) {
-    path.MoveTo(center);
-    for (int step = 0; step <= steps; ++step) {
-      const double current = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
-      path.LineTo(point(radius, current));
-    }
-    path.Close();
-    return path;
-  }
-  path.MoveTo(point(radius, start));
-  for (int step = 1; step <= steps; ++step) {
-    const double current = start + sweep * static_cast<double>(step) / static_cast<double>(steps);
-    path.LineTo(point(radius, current));
-  }
-  path.LineTo(point(inner_radius, start + sweep));
-  for (int step = 1; step <= steps; ++step) {
-    const double current = start + sweep - sweep * static_cast<double>(step) / static_cast<double>(steps);
-    path.LineTo(point(inner_radius, current));
-  }
-  path.Close();
-  return path;
-}
-
-void PaintPie(PaintContext& context, Size size, std::span<const double> shares,
-              std::span<const double> value_shares,
-              std::span<const ResolvedSliceStyle> styles, Color empty_color, bool rounded_caps,
-              std::optional<std::size_t> hovered, Color center_color, std::span<const float> highlights) {
-  const Point center{size.width * 0.5F, size.height * 0.5F};
-  // 圆环内径取各切片解析值里的最大者（chart-wide Style 会合并进每个切片），
-  // 限幅到外径的 90%，避免内径逼近外径后段路径退化。
-  float inner_ratio = 0.0F;
-  for (const auto& style : styles) {
-    if (!style.inner_radius) continue;
-    inner_ratio = std::max(inner_ratio, std::clamp(*style.inner_radius, 0.0F, 0.9F));
-  }
-  if (rounded_caps && inner_ratio == 0.0F) inner_ratio = 0.62F;
-  const auto ring = RoundedGeometry(size, inner_ratio);
-  const float radius = rounded_caps ? ring.radius
-      : std::max(0.0F, std::min(size.width, size.height) * 0.5F - 1.0F);
-  if (radius <= 0.0F) return;
-  const float inner_radius = inner_ratio * radius;
-  const std::size_t positive_count = static_cast<std::size_t>(std::count_if(
-      shares.begin(), shares.end(), [](double share) { return share > 0.0; }));
-  if (positive_count == 0) {
-    if (inner_radius > 0.0F) {
-      context.FillPath(SectorPath(center, radius, inner_radius,
-                                  -std::numbers::pi_v<double> * 0.5,
-                                  std::numbers::pi_v<double> * 2.0, true),
-                       empty_color);
-    } else {
-      context.DrawCircle(center, radius, empty_color);
-    }
-    if (!rounded_caps) return;
-  } else if (rounded_caps) {
-    const auto paint_segment = [&](const Path& path, std::size_t index, float highlight) {
-      const float width = ring.width + HoverGrowth(ring) * 2.0F * highlight;
-      if (highlight > 0.0F) {
-        const Color color = SliceColor(styles[index].fill, center_color);
-        for (int layer = 3; layer > 0; --layer) {
-          auto halo = color;
-          halo.alpha *= highlight * 0.12F / static_cast<float>(layer);
-          context.StrokePath(path, halo,
-              StrokeStyle{.width = width + static_cast<float>(layer) * std::min(4.0F, ring.radius * 0.1F),
-                          .cap = StrokeCap::Round, .join = StrokeJoin::Round});
-        }
-      }
-      if (styles[index].stroke_style.width > 0.0F) {
-        context.StrokePath(path, styles[index].stroke,
-            StrokeStyle{.width = width + styles[index].stroke_style.width * 2.0F,
-                        .cap = StrokeCap::Round, .join = StrokeJoin::Round});
-      }
-      context.StrokePath(path, styles[index].fill,
-          StrokeStyle{.width = width, .cap = StrokeCap::Round, .join = StrokeJoin::Round});
-    };
-    std::vector<std::pair<std::size_t, Path>> highlighted_paths;
-    double start = top_angle;
-    for (std::size_t index = 0; index < shares.size(); ++index) {
-      const double sweep = shares[index] * full_circle;
-      if (sweep <= 0.0) continue;
-      const auto [from, to] = RoundedAngles(start, sweep, ring.trim, positive_count == 1);
-      const auto path = ArcPath(ring, from, to, positive_count == 1);
-      if (highlights[index] > 0.0F) highlighted_paths.emplace_back(index, path);
-      else paint_segment(path, index, 0.0F);
-      start += sweep;
-    }
-    std::stable_sort(highlighted_paths.begin(), highlighted_paths.end(), [&](const auto& a, const auto& b) {
-      return highlights[a.first] < highlights[b.first];
-    });
-    for (const auto& [index, path] : highlighted_paths) paint_segment(path, index, highlights[index]);
-  }
-  if (rounded_caps) {
-    std::size_t active = shares.size();
-    if (hovered && *hovered < shares.size() && shares[*hovered] > 0.0) active = *hovered;
-    if (active == shares.size() && positive_count > 0) {
-      active = static_cast<std::size_t>(std::distance(shares.begin(),
-          std::max_element(shares.begin(), shares.end())));
-    }
-    const int percent = active == shares.size() ? 0 : static_cast<int>(std::lround(value_shares[active] * 100.0));
-    const float font_size = std::clamp(radius * 0.3F, 11.0F, 30.0F);
-    context.DrawText({center.x - inner_radius, center.y - font_size, inner_radius * 2.0F, font_size * 2.0F},
-        std::to_string(percent) + "%",
-        {Font::System(font_size).WithWeight(FontWeight::SemiBold), center_color},
-        {.align = TextAlign::Center, .vertical_align = TextVerticalAlign::Center, .wrap = TextWrap::NoWrap});
-    return;
-  }
-
-  double start = -std::numbers::pi_v<double> * 0.5;
-  for (std::size_t index = 0; index < shares.size(); ++index) {
-    const double sweep = shares[index] * 2.0 * std::numbers::pi_v<double>;
-    if (sweep <= 0.0) continue;
-    const auto path = SectorPath(center, radius, inner_radius, start, sweep,
-                                 positive_count == 1);
-    context.FillPath(path, styles[index].fill);
-    if (styles[index].stroke_style.width > 0.0F) {
-      context.StrokePath(path, styles[index].stroke, styles[index].stroke_style);
-    }
-    start += sweep;
-  }
-}
 
 } // namespace
 
 [[huxerui::composable]] View BuildPieChart(std::shared_ptr<const PieConfig> config) {
-  const auto& theme = UseTheme();
-  const auto charts = UseEnvironment<ChartTheme>();
-  const auto data = config->data.Data();
-  const auto shares = Shares(data);
-  auto geometry_shares = shares;
-  if (!data.empty() && std::none_of(data.begin(), data.end(),
-      [](const PieDatum& datum) { return datum.value > 0.0; })) {
-    // Show every declared category while keeping actual percentages and semantics at zero.
-    std::fill(geometry_shares.begin(), geometry_shares.end(), 1.0 / static_cast<double>(data.size()));
-  }
-  std::vector<std::string> labels;
-  labels.reserve(data.size());
-  for (const auto& datum : data) labels.push_back(UseString(datum.label));
-
-  auto palette = charts.palette;
-  if (palette.empty()) {
-    palette = {theme.colors.primary, theme.colors.secondary, theme.colors.error,
-               theme.colors.on_surface_variant, theme.colors.outline};
-  }
-
-  std::unordered_set<std::string> keys;
-  keys.reserve(data.size());
-  std::vector<ResolvedSliceStyle> styles;
-  styles.reserve(data.size());
-  for (const auto& datum : data) {
-    keys.insert(datum.key);
-    ResolvedSliceStyle style{
-        .fill = Brush(palette[StableHash(datum.key) % palette.size()]),
-        .stroke = Brush(theme.colors.surface),
-    };
-    Merge(style, charts.pie);
-    Merge(style, config->style);
-    if (const auto found = config->slice_styles.find(datum.key); found != config->slice_styles.end()) {
-      Merge(style, found->second);
-    }
-    Validate(style.stroke_style);
-    styles.push_back(std::move(style));
-  }
-  for (const auto& [key, style] : config->slice_styles) {
-    Require(keys.contains(key), "Unknown pie datum key in SliceStyle");
-    Require(!style.rounded_caps.has_value(), "Pie rounded_caps applies chart-wide, not in SliceStyle");
-    Validate(style.stroke_style.value_or(StrokeStyle{.width = 1.0F, .join = StrokeJoin::Round}));
-  }
-
-  const bool rounded_caps = config->style.rounded_caps.value_or(charts.pie.rounded_caps.value_or(false));
-  float inner_ratio = 0.0F;
-  for (const auto& style : styles) {
-    if (style.inner_radius) inner_ratio = std::max(inner_ratio, std::clamp(*style.inner_radius, 0.0F, 0.9F));
-  }
-  if (rounded_caps && inner_ratio == 0.0F) inner_ratio = 0.62F;
-  const auto hovered_key = UseState(std::optional<std::string>{});
-  std::optional<std::size_t> hovered;
-  if (rounded_caps && hovered_key.Get()) {
-    for (std::size_t index = 0; index < data.size(); ++index) {
-      if (data[index].key == *hovered_key.Get()) { hovered = index; break; }
-    }
-  }
-
-  ChartStyle appearance{
-      .background = Brush(Color::Transparent()),
-      .title = TextStyle{Font::System(theme.typography.title_large), theme.colors.on_surface},
-  };
-  Merge(appearance, charts.common);
-  Merge(appearance, config->appearance);
-
-  Color empty_color = theme.colors.surface_container_high;
-  empty_color.alpha *= 0.8F;
-  const std::string empty_label = UseString(::charts::strings::empty);
-  const std::string custom_summary = UseString(config->accessibility.summary);
-  const std::string summary = custom_summary.empty()
-      ? Summary(data, labels, shares, empty_label)
-      : custom_summary;
-  const std::string title = UseString(config->title);
-  const auto painted_size = UseState(std::make_shared<Size>()).Get();
-  const auto hover_motion = UseState(std::make_shared<PieHoverState>()).Get();
-  std::erase_if(hover_motion->arcs, [&](const auto& entry) { return !keys.contains(entry.first); });
-  std::vector<std::string> datum_keys;
-  datum_keys.reserve(data.size());
-  for (std::size_t index = 0; index < data.size(); ++index) {
-    datum_keys.push_back(data[index].key);
-    auto& motion = hover_motion->arcs.try_emplace(data[index].key, 0.0F).first->second;
-    const float target = rounded_caps && hovered == index ? 1.0F : 0.0F;
-    if (!rounded_caps) motion.Set(0.0F);
-    else if (motion.Target() != target) motion.AnimateTo(target, hover_tween);
-  }
-  hover_motion->TargetColor(hovered && geometry_shares[*hovered] > 0.0
-      ? SliceColor(styles[*hovered].fill, theme.colors.on_surface) : theme.colors.on_surface);
-  auto plot = Canvas([shares, geometry_shares, styles, empty_color, rounded_caps, hovered,
-                      background = appearance.background, hover_motion, datum_keys,
-                      painted_size](PaintContext& context, Size size) {
-    *painted_size = size;
-    if (background) context.FillPath(Path::RoundedRect({0.0F, 0.0F, size.width, size.height}, {}), *background);
-    std::vector<float> highlights;
-    highlights.reserve(datum_keys.size());
-    for (const auto& key : datum_keys) highlights.push_back(hover_motion->arcs.at(key).Value());
-    PaintPie(context, size, geometry_shares, shares, styles, empty_color, rounded_caps, hovered,
-             hover_motion->LabelColor(), highlights);
-  }).With(Semantics{.role = SemanticRole::Image, .label = summary});
-  if (rounded_caps) {
-    plot = std::move(plot).With(PieHoverAnimation{hover_motion, theme.motion.reduced_motion}).On<ViewEvents::Hover>(
-        [geometry_shares, inner_ratio, painted_size, datum_keys = std::move(datum_keys), hovered_key, hovered](const HoverEvent& event) {
-          const auto index = event.type == HoverEventType::Leave ? std::nullopt
-              : HitRoundedRing(event.position, *painted_size, geometry_shares, inner_ratio, hovered);
-          const auto key = index ? std::optional(datum_keys[*index]) : std::nullopt;
-          if (hovered_key.Get() != key) hovered_key = key;
-        });
-  }
-  if (title.empty()) return plot;
+  const auto presentation = UsePiePresentation(*config);
+  View plot = Canvas([](PaintContext&, Size) {})
+      .With(PieSurface{presentation}, Grow(), Semantics{.role = SemanticRole::Image, .label = presentation->summary});
+  if (presentation->title.empty()) return plot;
   return Column {
-    Text(title).Style(*appearance.title),
+    Text(presentation->title, TextRole::Title).Style(presentation->title_style),
     plot,
-  }.With(Spacing(theme.spacing.small), CrossAlign(CrossAxisAlignment::Stretch));
+  }.With(Spacing(presentation->spacing), CrossAlign(CrossAxisAlignment::Stretch));
 }
 
 } // namespace huxerui::charts_detail

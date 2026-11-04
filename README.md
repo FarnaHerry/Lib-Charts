@@ -12,7 +12,7 @@ Charts for HuxerUI applications, with tooltips, interactive legends, selection, 
 | `AreaChart` | Filled areas, stacked areas and percentage stacks |
 | `BarChart` | Vertical or horizontal bars, grouped or stacked |
 | `ScatterChart` | Scatter plots and bubble charts |
-| `PieChart` | Proportional slices for part-to-whole comparisons |
+| `PieChart` | Solid pies, donuts and rounded donuts with animated hover feedback |
 
 ## Installation
 
@@ -56,50 +56,41 @@ View SalesChart() {
       .Legend({.visible = false})
       .With(Frame{.height = 280.0F});
 }
+```
 
+Call `SalesChart()` from your app's UI inside a Flat or Material theme. Set the height with `Frame` and let the parent layout provide the width.
+
+For a rounded donut, supply nonnegative values with stable keys:
+
+```cpp
 View TrafficMix() {
   static const PieChartData data({
     {"upload", "Upload", 72.0},
     {"download", "Download", 28.0},
   });
-
   return PieChart(data)
-      .Style({.inner_radius = 0.62F, .rounded_caps = true})
       .Title("Traffic mix")
+      .Style({.inner_radius = 0.62F, .rounded_caps = true})
       .SliceStyle("upload", {.fill = Brush(Color::Rgb(230, 184, 102))})
       .SliceStyle("download", {.fill = Brush(Color::Rgb(72, 118, 232))})
-      .With(Frame{.width = 96.0F, .height = 96.0F});
+      .With(Frame{.width = 200.0F, .height = 240.0F});
 }
 ```
 
-`rounded_caps` opts into a rounded donut with the largest share in its center. Hover a
-segment to expand it with a soft halo and show its percentage in the same color.
-Expansion, halo opacity and text color ease smoothly over 180 ms, including interrupted hover changes;
-leaving the segment restores the largest share and the default text color. Omit
-the option to keep the existing solid pie or ordinary donut. A rounded donut uses
-`inner_radius = 0.62` if no hole radius is supplied.
+`PieChart` renders a solid pie by default. Set `inner_radius` for a donut, and
+`rounded_caps` for rounded ends, a center percentage and a 180 ms hover transition
+that honors reduced motion. Geometry is configured for the whole chart; `SliceStyle`
+customizes paint. Place any legend or additional labels alongside the chart as ordinary Views.
 
-When every value is zero, the declared entries divide the pie into equal colored
-segments. The rounded donut still displays `0%` in its center, including while
-hovering a segment; the equal areas are placeholders, not nonzero data shares.
-An empty data snapshot retains the neutral empty state. With any positive value,
-segments and percentages follow the actual proportions and zero-valued entries
-remain invisible.
-
-Call these composables from your app's UI inside a Flat or Material theme. Set the chart dimensions with `Frame`.
+An empty snapshot keeps a neutral shape with the configured hole. All-zero values
+use equal placeholder slices while their displayed and accessible percentages remain
+zero. With a positive total, zero-valued entries occupy no space. Invalid keys,
+negative or nonfinite values, and invalid styles are rejected.
 
 ## Examples and documentation
 
 - [Example gallery](examples/preview/src/app.cpp): Cartesian and pie charts, stacking, selection, interactive legends and animations.
 - [API reference](include/huxerui/charts.h): detailed usage, data requirements, configuration options and examples.
-
-To build the focused rounded donut demo on Windows, configure the project with `HUXERUI_CHARTS_BUILD_PREVIEW=ON`, then build and run `rounded_donut_demo`:
-
-```powershell
-cmake -S . -B build -DHUXERUI_HOME="C:/path/to/HuxerUI" -DHUXERUI_CHARTS_BUILD_PREVIEW=ON
-cmake --build build --config Debug --target rounded_donut_demo
-& .\build\examples\preview\Debug\rounded_donut_demo.exe
-```
 
 ## License
 
