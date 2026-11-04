@@ -1,7 +1,7 @@
 #pragma once
 
 /// @file
-/// @brief Public data, styling, events and View declarations for HuxerUI Cartesian charts.
+/// @brief Public data, styling, events and View declarations for HuxerUI charts.
 ///
 /// Link the HuxerUI::Charts target through huxerui_use_library(). No root installation hook is required.
 /// Chart data is immutable and shared; selection and series visibility remain application-controlled.
@@ -162,6 +162,7 @@ namespace charts_detail {
 struct Data;
 struct Config;
 struct Access;
+struct PieConfig;
 /// @endcond
 
 /// Owns immutable samples together with a stable series key, display label and visibility value.
@@ -302,6 +303,36 @@ public:
 private:
   std::shared_ptr<const charts_detail::Data> data_;
   friend struct charts_detail::Access;
+};
+
+/// Stores one finite, nonnegative value displayed as a PieChart slice.
+struct PieDatum {
+  /// Nonempty stable identifier, unique within the chart snapshot.
+  std::string key;
+  /// Display text or a generated localized string resource.
+  StringVariant label;
+  /// Finite, nonnegative value that determines this datum's share of the pie.
+  double value = 0.0;
+  bool operator==(const PieDatum&) const = default;
+};
+
+/// Owns an immutable snapshot of values displayed by PieChart.
+///
+/// Datum keys must be nonempty and unique. Values must be finite and nonnegative. An empty snapshot renders
+/// the chart's neutral empty state. An all-zero snapshot paints equally sized slices for the declared entries,
+/// while percentages remain zero. Positive values are normalized without overflowing their sum.
+/// @code
+/// PieChartData data({{"upload", "Upload", 72.0}, {"download", "Download", 28.0}});
+/// @endcode
+class PieChartData {
+public:
+  explicit PieChartData(std::vector<PieDatum> data = {});
+  /// Borrows data in the declared slice order.
+  /// @return An immutable span valid while this snapshot's shared storage remains alive.
+  [[nodiscard]] std::span<const PieDatum> Data() const noexcept;
+  bool operator==(const PieChartData&) const = default;
+private:
+  std::shared_ptr<const std::vector<PieDatum>> data_;
 };
 
 /// Describes a finite numeric interval. Explicit axis/size domains require min < max.
@@ -536,6 +567,30 @@ struct ScatterChartStyle {
   ChartMarkerStyle marker;
   bool operator==(const ScatterChartStyle&) const = default;
 };
+/// Describes pie-slice paint independently of data values and slice order.
+/// Apply as the chart-wide default with PieChart::Style() or to one datum with PieChart::SliceStyle().
+struct PieChartStyle {
+  /// Slice fill Brush; the unresolved value is selected from ChartTheme::palette using the datum's stable key.
+  std::optional<Brush> fill;
+  /// Slice outline Brush; the unresolved value is the surrounding SDK surface color.
+  std::optional<Brush> stroke;
+  /// SDK stroke configuration for slice outlines; the resolved default width is 1 DIP.
+  /// Rounded donuts use its width; their continuous outlines always use round caps and joins.
+  std::optional<StrokeStyle> stroke_style;
+  /// Donut hole radius as a fraction of the outer radius; the default 0 renders a solid pie.
+  /// Must be finite and within [0.0, 0.9]. Applies chart-wide through Style() or ChartTheme::pie,
+  /// including the empty state. SliceStyle() cannot override the hole radius.
+  std::optional<float> inner_radius;
+  /// Draw donut segments with round ends and show the largest share in the center. Hovering a
+  /// segment smoothly expands it with a halo and shows its share in the matching color. Hover transitions
+  /// take 180 ms and honor reduced-motion settings. Applies chart-wide through Style() or ChartTheme::pie;
+  /// SliceStyle() cannot change the geometry of an individual segment. An unset/zero inner_radius
+  /// uses 0.62 when enabled. The default false preserves the ordinary pie/donut appearance.
+  /// All-zero data uses equal segments with 0% in the center, including during hover. Very small slices
+  /// remain rounded dots; overlapping slices paint in data order and the last visible slice receives hover.
+  std::optional<bool> rounded_caps;
+  bool operator==(const PieChartStyle&) const = default;
+};
 
 /// Supplies optional chart-specific overrides through the SDK's typed Environment.
 ///
@@ -562,6 +617,8 @@ struct ChartTheme {
   BarChartStyle bar;
   /// Default data-mark overrides for ScatterChart instances in this environment.
   ScatterChartStyle scatter;
+  /// Default slice paint overrides for PieChart instances in this environment.
+  PieChartStyle pie;
   /// Optional series-color palette. Empty derives colors from SDK theme tokens.
   /// Selection is deterministic by stable series key, but a finite palette cannot guarantee unique colors.
   std::vector<Color> palette;
@@ -741,7 +798,7 @@ struct ChartAccessibilityOptions {
 };
 
 namespace charts_detail {
-/// Supplies the common fluent API inherited by all four concrete chart components.
+/// Supplies the common fluent API inherited by Cartesian chart components.
 ///
 /// Construct LineChart, AreaChart, BarChart or ScatterChart rather than this implementation base. Fluent methods
 /// return the concrete component and preserve independent declaration values; they do not mutate mounted state.
@@ -1011,6 +1068,55 @@ public:
   /// @return The updated scatter-chart declaration.
   /// @throws std::invalid_argument during composition if key is unknown or a resolved style is invalid.
   ScatterChart SeriesStyle(std::string key, ScatterChartStyle value) &&;
+};
+
+/// Displays nonnegative values as proportional circular slices.
+///
+/// Slice colors use the chart palette selected by stable datum key. Labels and values remain ordinary application
+/// Views so callers can choose a layout that fits their use case. PieChart uses the same Title(), Appearance() and
+/// Style() and Accessibility() fluent naming as the other chart components; SliceStyle() supplies keyed paint overrides.
+/// Set the component's height with Frame, including space for an optional title. Ordinary pies and donuts are
+/// static images; rounded donuts additionally provide pointer hover feedback. Legends, tooltips and selection
+/// remain application-owned Views and state.
+/// @code
+/// PieChartData data({{"upload", "Upload", 72.0}, {"download", "Download", 28.0}});
+/// return PieChart(data)
+///     .SliceStyle("upload", {.fill = Brush(Color::Rgb(230, 184, 102))})
+///     .SliceStyle("download", {.fill = Brush(Color::Rgb(72, 118, 232))})
+///     .With(Frame{.width = 96.0F, .height = 96.0F});
+/// @endcode
+class PieChart final : public View {
+public:
+  /// Creates a proportional pie from an immutable data snapshot.
+  explicit PieChart(PieChartData data);
+  /// Sets a title rendered as an ordinary SDK Text View above the plotting surface.
+  /// @param value Literal text or a generated localized resource; empty hides the title.
+  /// @return The updated pie-chart declaration.
+  PieChart Title(StringVariant value) &&;
+  /// Overrides shared chart decoration without changing pie-slice styles.
+  /// @param value Chart-wide overrides. Pie charts apply the title typography and plotting background fields;
+  /// axis and interaction fields do not apply to a pie.
+  /// @return The updated pie-chart declaration.
+  PieChart Appearance(ChartStyle value) &&;
+  /// Overrides the generated semantic summary for assistive technology.
+  /// @param value ChartAccessibilityOptions::summary; an empty value uses the generated datum labels and shares.
+  /// max_data_nodes does not apply because the pie is exposed as one summarized image.
+  /// @return The updated pie-chart declaration.
+  PieChart Accessibility(ChartAccessibilityOptions value) &&;
+  /// Overrides slice fill and outline for every datum in the chart.
+  /// @param value Override fields layered over ChartTheme::pie and the resolved palette; unset fields inherit.
+  /// @return The updated pie-chart declaration. Keyed SliceStyle() overrides still take precedence.
+  /// @throws std::invalid_argument during composition if the resolved style is invalid.
+  PieChart Style(PieChartStyle value) &&;
+  /// Overrides the fill and outline of one datum without copying the immutable data snapshot.
+  /// @param key Stable key of a datum present in the snapshot.
+  /// @param value Override fields layered over this chart's default pie style.
+  /// @return The updated pie-chart declaration.
+  /// @throws std::invalid_argument during composition if key is unknown, geometry fields are set, or a style is invalid.
+  PieChart SliceStyle(std::string key, PieChartStyle value) &&;
+private:
+  std::shared_ptr<const charts_detail::PieConfig> config_;
+  template <class F> PieChart Change(F&& update);
 };
 
 } // namespace huxerui

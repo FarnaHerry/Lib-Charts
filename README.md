@@ -10,6 +10,7 @@ Charts for HuxerUI applications, with tooltips, interactive legends, selection, 
 | `AreaChart` | Filled areas, stacked areas and percentage stacks |
 | `BarChart` | Vertical or horizontal bars, grouped or stacked |
 | `ScatterChart` | Scatter plots and bubble charts |
+| `PieChart` | Solid pies, donuts and rounded donuts with animated hover feedback |
 
 ## Installation
 
@@ -57,9 +58,36 @@ View SalesChart() {
 
 Call `SalesChart()` from your app's UI inside a Flat or Material theme. Set the height with `Frame` and let the parent layout provide the width.
 
+For a rounded donut, supply nonnegative values with stable keys:
+
+```cpp
+View TrafficMix() {
+  static const PieChartData data({
+    {"upload", "Upload", 72.0},
+    {"download", "Download", 28.0},
+  });
+  return PieChart(data)
+      .Title("Traffic mix")
+      .Style({.inner_radius = 0.62F, .rounded_caps = true})
+      .SliceStyle("upload", {.fill = Brush(Color::Rgb(230, 184, 102))})
+      .SliceStyle("download", {.fill = Brush(Color::Rgb(72, 118, 232))})
+      .With(Frame{.width = 200.0F, .height = 240.0F});
+}
+```
+
+`PieChart` renders a solid pie by default. Set `inner_radius` for a donut, and
+`rounded_caps` for rounded ends, a center percentage and a 180 ms hover transition
+that honors reduced motion. Geometry is configured for the whole chart; `SliceStyle`
+customizes paint. Place any legend or additional labels alongside the chart as ordinary Views.
+
+An empty snapshot keeps a neutral shape with the configured hole. All-zero values
+use equal placeholder slices while their displayed and accessible percentages remain
+zero. With a positive total, zero-valued entries occupy no space. Invalid keys,
+negative or nonfinite values, and invalid styles are rejected.
+
 ## Examples and documentation
 
-- [Example gallery](examples/preview/src/app.cpp): all four chart types, stacking, selection, interactive legends and animations.
+- [Example gallery](examples/preview/src/app.cpp): Cartesian and pie charts, stacking, selection, interactive legends and animations.
 - [API reference](include/huxerui/charts.h): detailed usage, data requirements, configuration options and examples.
 
 ## License
