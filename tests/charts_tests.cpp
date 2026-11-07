@@ -13,6 +13,8 @@ using namespace huxerui;
 using namespace huxerui::charts_detail;
 
 namespace {
+template <class T> void Discard(T&&) {}
+
 int checks = 0;
 void Check(bool condition, const char* message) {
   ++checks;
@@ -59,7 +61,7 @@ void DataTests() {
   Check(data.Series()[0].Samples().data() == hidden.Series()[0].Samples().data(), "Visibility must share immutable samples");
   Check(Access::DataOf(data)->entries[0].index == Access::DataOf(hidden)->entries[0].index, "Visibility must share the index");
   Check(data == data.WithSeriesVisible("first", true), "An unchanged visibility update must preserve identity");
-  Reject([&] { static_cast<void>(data.WithSeriesVisible("absent", true)); });
+  Reject([&] { Discard(data.WithSeriesVisible("absent", true)); });
 }
 
 void GeometryTests() {
@@ -386,7 +388,7 @@ StrokeStyle LegendStroke() { return {.width = 3.0F, .dash_pattern = {4.0F, 2.0F}
 View LegendApp() {
   const auto revision = UseState(0);
   legend_revision = revision;
-  static_cast<void>(revision.Get());
+  Discard(revision.Get());
   const auto xy = XYChartData({XYSeries("s", "Series", {{"a", 0, 0.25}, {"b", 1, 0.75}})});
   const auto categories = CategoryChartData({{"a", "A"}}, {CategorySeries("s", "Series", {{"a", "a", 1}})});
   const auto scatter = ScatterChartData({ScatterSeries("s", "Series", {{"a", 0.5, 0.5}})});
@@ -512,7 +514,7 @@ std::optional<State<std::optional<ChartDatumIdentity>>> highlight_selection;
 View HighlightApp() {
   const auto revision = UseState(0);
   highlight_revision = revision;
-  static_cast<void>(revision.Get());
+  Discard(revision.Get());
   const auto selected = UseState(std::optional<ChartDatumIdentity>{});
   highlight_selection = selected;
   static const XYChartData xy({XYSeries("s", "Series", {{"a", 0.4, 0.5}, {"b", 0.7, 0.7}})});
@@ -537,7 +539,7 @@ View HighlightApp() {
         .Appearance({.interaction = {.highlight = highlight_color, .width = highlight_width}})
         .Legend({.visible = false})
         .Tooltip({.enabled = false})
-        .Selection(selected.Get())
+        .Selection(selected)
         .template On<ChartEvents::SelectionRequested>([selected](const ChartDatumInfo& info) { selected = info.identity; })
         .With(Frame{.width = 400.0F, .height = 300.0F});
   };
@@ -815,7 +817,7 @@ int tooltip_builds = 0;
 [[huxerui::composable]] View ControlledChart() {
   const auto generation = UseState(0);
   revision = generation;
-  const auto current = generation.Get();
+  const int current = generation;
   if (!controlled_mounted) return Text("Unmounted");
   static const auto data = [] {
     std::vector<XYDatum> values;
@@ -1092,7 +1094,7 @@ View ZeroPieApp() {
     Scope([] {
       const auto revision = UseState(0);
       zero_pie_revision = revision;
-      static_cast<void>(revision.Get());
+      Discard(revision.Get());
       return PieChart(PieChartData(zero_pie_data))
           .Style({.inner_radius = 0.62F, .rounded_caps = zero_pie_rounded})
           .With(Frame{.width = 160.0F, .height = 160.0F});
@@ -1265,7 +1267,7 @@ View PieScenarioApp() {
   ++pie_scenario_compositions;
   const auto revision = UseState(0);
   pie_scenario_revision = revision;
-  static_cast<void>(revision.Get());
+  Discard(revision.Get());
   auto theme = FlatLightThemeSpec();
   theme.motion.reduced_motion = pie_scenario_reduced_motion;
   auto chart = PieChart(pie_scenario_data).Style(pie_scenario_style).Title(pie_scenario_title);

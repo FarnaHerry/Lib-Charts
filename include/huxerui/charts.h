@@ -703,7 +703,7 @@ struct ChartSeriesVisibilityRequest {
 /// const auto selected = UseState(std::optional<ChartDatumIdentity>{});
 /// const auto hovered = UseState(std::optional<ChartDatumIdentity>{});
 /// return LineChart(data)
-///     .Selection(selected.Get())
+///     .Selection(selected)
 ///     .On<ChartEvents::SelectionRequested>([selected](const ChartDatumInfo& info) {
 ///       selected = info.identity;
 ///     })
@@ -977,7 +977,7 @@ public:
 ///   CategorySeries("returns", "Returns", {{"a-returns", "a", -3.0}, {"b-returns", "b", -4.0}}),
 /// });
 /// const auto data = UseState(initial);
-/// return BarChart(data.Get())
+/// return BarChart(data)
 ///     .Orientation(ChartOrientation::Horizontal)
 ///     .Mode(BarMode::Stacked)
 ///     .ValueAxis(ChartAxis::Linear().IncludeZero().Title("Units"))
