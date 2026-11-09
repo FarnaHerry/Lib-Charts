@@ -183,16 +183,16 @@ View SelectionNote(const std::optional<ChartDatumInfo>& selection) {
           .OnChanged([interpolation](std::size_t index) { interpolation = index; })
           .With(Semantics{.label = "Line interpolation"}),
     }.With(Spacing(16.0F), CrossAlign(CrossAxisAlignment::Center)),
-    LineChart(trend.Get())
-        .Interpolation(interpolations[interpolation.Get()])
+    LineChart(trend)
+        .Interpolation(interpolations[interpolation])
         .XAxis(ChartAxis::Linear().Title("Time").Grid(false))
         .YAxis(ChartAxis::Linear().Title("Value").IncludeZero().TickCount(5))
         .Accessibility({.summary = "Numeric line chart with 4,000 samples"})
-        .Selection(SelectedIdentity(line_selection.Get()))
+        .Selection(SelectedIdentity(line_selection))
         .On<ChartEvents::SelectionRequested>([line_selection](const ChartDatumInfo& info) { line_selection = info; })
         .On<ChartEvents::SeriesVisibilityRequested>(trend_visibility)
         .With(Frame{.height = 280.0F}),
-    SelectionNote(line_selection.Get()),
+    SelectionNote(line_selection),
   });
   View area = ChartCard(Column {
     CardHeading("AREA / COMPOSITION", "See the bigger picture", "The trend data, viewed as a whole or as a share."),
@@ -201,19 +201,19 @@ View SelectionNote(const std::optional<ChartDatumInfo>& selection) {
           .OnChanged([area_mode](std::size_t index) { area_mode = index; })
           .With(Semantics{.label = "Area mode"}),
     },
-    AreaChart(trend.Get())
-        .Mode(area_modes[area_mode.Get()])
+    AreaChart(trend)
+        .Mode(area_modes[area_mode])
         .XAxis(ChartAxis::Linear().Title("Time").TickCount(5).Grid(false))
-        .YAxis(ChartAxis::Linear().Title(area_mode.Get() == 2 ? "Share" : "Value").TickCount(5))
+        .YAxis(ChartAxis::Linear().Title(area_mode == 2 ? "Share" : "Value").TickCount(5))
         .SeriesStyle("north", {.fill = Brush(Color::Rgb(55, 103, 218, 0.16F))})
         .SeriesStyle("south", {.fill = Brush(Color::Rgb(30, 147, 138, 0.22F))})
         .Animation({.enabled = true})
         .Accessibility({.summary = "Area chart sharing the numeric line data"})
-        .Selection(SelectedIdentity(area_selection.Get()))
+        .Selection(SelectedIdentity(area_selection))
         .On<ChartEvents::SelectionRequested>([area_selection](const ChartDatumInfo& info) { area_selection = info; })
         .On<ChartEvents::SeriesVisibilityRequested>(trend_visibility)
         .With(Frame{.height = 260.0F}),
-    SelectionNote(area_selection.Get()),
+    SelectionNote(area_selection),
     Caption("Legend visibility is shared with the numeric line chart."),
   });
   View bars = ChartCard(Column {
@@ -224,45 +224,45 @@ View SelectionNote(const std::optional<ChartDatumInfo>& selection) {
           .With(Semantics{.label = "Bar mode"}),
       Switch("Horizontal", horizontal).OnChanged([horizontal](bool value) { horizontal = value; }),
     }.With(Spacing(16.0F), CrossAlign(CrossAxisAlignment::Center)),
-    BarChart(sales.Get())
-        .Mode(bar_modes[bar_mode.Get()])
-        .Orientation(horizontal.Get() ? ChartOrientation::Horizontal : ChartOrientation::Vertical)
+    BarChart(sales)
+        .Mode(bar_modes[bar_mode])
+        .Orientation(horizontal ? ChartOrientation::Horizontal : ChartOrientation::Vertical)
         .CategoryAxis(ChartAxis::Category().Grid(false))
-        .ValueAxis(ChartAxis::Linear().Title(bar_mode.Get() == 2 ? "Share" : "Sales").IncludeZero().TickCount(5))
+        .ValueAxis(ChartAxis::Linear().Title(bar_mode == 2 ? "Share" : "Sales").IncludeZero().TickCount(5))
         .Animation({.enabled = true})
         .Accessibility({.summary = "Monthly sales bar chart"})
-        .Selection(SelectedIdentity(bar_selection.Get()))
+        .Selection(SelectedIdentity(bar_selection))
         .On<ChartEvents::SelectionRequested>([bar_selection](const ChartDatumInfo& info) { bar_selection = info; })
         .On<ChartEvents::SeriesVisibilityRequested>(sales_visibility)
         .With(Frame{.height = 260.0F}),
-    SelectionNote(bar_selection.Get()),
+    SelectionNote(bar_selection),
     Caption("Legend visibility is shared with the category line chart."),
   });
   View categories = ChartCard(Column {
     CardHeading("LINE / CATEGORIES", "Same data, another angle", "Monthly sales, connected in category order."),
-    LineChart(sales.Get())
+    LineChart(sales)
         .XAxis(ChartAxis::Category().Grid(false))
         .YAxis(ChartAxis::Linear().Title("Sales").IncludeZero().TickCount(5))
         .Style({.marker = {.visible = true, .area = 48.0F, .fill = Brush(Color::White()),
                            .stroke_style = StrokeStyle{.width = 2.0F}}})
         .Accessibility({.summary = "Monthly sales category line chart"})
-        .Selection(SelectedIdentity(category_selection.Get()))
+        .Selection(SelectedIdentity(category_selection))
         .On<ChartEvents::SelectionRequested>([category_selection](const ChartDatumInfo& info) {
           category_selection = info;
         })
         .On<ChartEvents::SeriesVisibilityRequested>(sales_visibility)
         .With(Frame{.height = 300.0F}),
-    SelectionNote(category_selection.Get()),
+    SelectionNote(category_selection),
     Caption("Point markers keep each category easy to inspect."),
   });
   View bubbles = ChartCard(Column {
     CardHeading("SCATTER / MAGNITUDE", "Room for discovery", "80 observations · bubble area represents magnitude"),
-    ScatterChart(scatter.Get())
+    ScatterChart(scatter)
         .XAxis(ChartAxis::Linear().Title("X").TickCount(5))
         .YAxis(ChartAxis::Linear().Title("Y").TickCount(5))
         .SizeScale({.min_area = 28.0F, .max_area = 280.0F})
         .Accessibility({.summary = "Bubble scatter chart with 80 observations"})
-        .Selection(SelectedIdentity(scatter_selection.Get()))
+        .Selection(SelectedIdentity(scatter_selection))
         .On<ChartEvents::SelectionRequested>([scatter_selection](const ChartDatumInfo& info) {
           scatter_selection = info;
         })
@@ -270,7 +270,7 @@ View SelectionNote(const std::optional<ChartDatumInfo>& selection) {
           scatter = scatter->WithSeriesVisible(request.series_key, request.visible);
         })
         .With(Frame{.height = 300.0F}),
-    SelectionNote(scatter_selection.Get()),
+    SelectionNote(scatter_selection),
     Caption("Translucent fills reveal overlapping observations."),
   });
   View pie = ChartCard(Column {
