@@ -218,6 +218,7 @@ std::vector<TickLayout> Ticks(const ChartAxis& axis, ChartNumericDomain domain, 
 struct ChartSurface {
   std::shared_ptr<const Presentation> presentation;
   PopupHandle popup;
+  ViewHandle target;
   class Extension;
 };
 
@@ -845,7 +846,7 @@ private:
       if (!spec_.popup.UpdateAnchor(*tooltip_id_, anchor)) tooltip_id_.reset();
       else if (tooltip_dirty_ || tooltip_identity_ != identity) spec_.popup.Update(*tooltip_id_, factory);
     }
-    if (!tooltip_id_) tooltip_id_ = spec_.popup.ShowAtAnchor(anchor, factory,
+    if (!tooltip_id_) tooltip_id_ = spec_.popup.ShowAtAnchor(spec_.target, anchor, factory,
         PopupOptions{.placement = style.placement, .gap = style.gap, .viewport_margin = style.viewport_margin,
                      .dismiss_on_outside_press = false, .dismiss_on_cancel = false, .retain_anchor_focus = true});
     tooltip_identity_ = identity;
@@ -941,10 +942,11 @@ private:
   const auto presentation = UsePresentation(config);
   const auto events = UseEvents();
   const auto popup = UsePopup();
+  const auto target = UseViewHandle();
   // The extension emits on its mounted Canvas. Forward those bindings to the enclosing component emitter
   // so each chart's externally attached handlers receive only that chart's events.
   View surface = Canvas([](PaintContext&, Size) {})
-      .With(ChartSurface{presentation, popup}, popup.Anchor(), Focusable(), Grow(),
+      .With(ChartSurface{presentation, popup, target}, target, Focusable(), Grow(),
             Frame{.min_width = 240.0F, .min_height = 96.0F})
       .On<ChartEvents::SelectionRequested>([events](const ChartDatumInfo& info) { events.Emit<ChartEvents::SelectionRequested>(info); })
       .On<ChartEvents::HoverChanged>([events](const std::optional<ChartDatumInfo>& info) { events.Emit<ChartEvents::HoverChanged>(info); });
